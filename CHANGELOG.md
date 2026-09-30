@@ -4,7 +4,7 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
-Generic multi-node support (work in progress, not yet tested on hardware).
+Generic multi-node support (experimental). Verified on a real network with an IS 180, two L 810 SC and an L 810 C; motion detection values are still unconfirmed.
 
 - Network setup is now a local `.json` backup import. The Steinel Cloud download and its login form were removed.
 - All controllable nodes of the backup are stored and restored, not only the NightmatIQ Plus.

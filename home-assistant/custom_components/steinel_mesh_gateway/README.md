@@ -3,8 +3,10 @@
 Exposes every node of the Steinel Bluetooth Mesh network that the ESP32-C3
 gateway has imported: lamps, sensor lamps and motion sensors.
 
-**Status:** experimental. It has been tested against a mock of the gateway API
-only, not yet against real hardware or a running Home Assistant.
+**Status:** experimental. Verified on a real network (IS 180, two L 810 SC and
+one L 810 C): setup, reading state, switching lamps, automatic mode and
+illuminance work. A motion detection (non-zero motion value) has not been
+observed yet, so the motion decoding is unconfirmed.
 
 ## Install
 
