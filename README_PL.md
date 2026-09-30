@@ -14,7 +14,7 @@ Autor i opiekun projektu: **Bartosz Supcziński** — <bartek@env.pl>
 
 ## Dlaczego powstał ten projekt
 
-NightmatIQ Plus komunikuje się przez Bluetooth Mesh, natomiast Home Assistant korzysta z sieci IP. ESP32-C3 łączy te dwa środowiska: dołącza do istniejącej instalacji Mesh, wymienia polecenia i informacje o stanie bezpośrednio z sensorem oraz publikuje je przez ESPHome. Steinel Cloud służy podczas konfiguracji do importu ustawień sieci; późniejsza praca odbywa się lokalnie.
+NightmatIQ Plus komunikuje się przez Bluetooth Mesh, natomiast Home Assistant korzysta z sieci IP. ESP32-C3 łączy te dwa środowiska: dołącza do istniejącej instalacji Mesh, wymienia polecenia i informacje o stanie bezpośrednio z sensorem oraz publikuje je przez ESPHome. Ustawienia sieci są importowane jednorazowo z lokalnego pliku kopii; konto Steinel ani dostęp do chmury nie są potrzebne, a późniejsza praca odbywa się lokalnie.
 
 ## Zrzuty ekranu
 
@@ -44,7 +44,7 @@ Opcjonalny moduł interfejsu łączy stan sensora, natężenie oświetlenia, try
 
 ### Lokalna integracja Bluetooth Mesh
 
-- Import kopii sieci Steinel przy użyciu konta podanego w przeglądarce.
+- Import kopii sieci Steinel (.json) z lokalnego pliku, bez konta Steinel.
 - Odtworzenie klucza sieciowego, klucza aplikacji, IV Index i danych węzła NightmatIQ.
 - Bezpośrednia komunikacja z NightmatIQ przez Bluetooth Mesh.
 - Odczyt rzeczywistego stanu wyjścia, natężenia oświetlenia, progu zmierzchowego, wersji firmware, rewizji sprzętu i identyfikacji produktu.
@@ -57,11 +57,11 @@ Opcjonalny moduł interfejsu łączy stan sensora, natężenie oświetlenia, try
 - Automatyczne odzyskiwanie komunikacji, gdy urządzenia Mesh odrzucają wcześniej używany adres źródłowy.
 - Zapamiętanie pierwszego potwierdzonego adresu źródłowego, aby późniejszy restart lub chwilowa niedostępność sensora nie powodowały niepotrzebnych zmian.
 - Zachowanie ustawień Mesh po zwykłym restarcie i aktualizacji OTA.
-- Ograniczone ponowienia i kontrolowane restarty podczas przełączania chmury i Bluetooth.
+- Ograniczone ponowienia i kontrolowane restarty podczas przełączania Bluetooth.
 
 ### Interfejs WWW urządzenia
 
-- Konfiguracja NightmatIQ z użyciem Steinel Cloud.
+- Konfiguracja sieci przez import pliku kopii, z kartą dla każdego urządzenia.
 - Sterowanie i ręczne odświeżanie stanu.
 - Zainstalowana konfiguracja i rozszerzona diagnostyka.
 - RSSI Mesh oraz liczniki odpowiedzi.
@@ -91,7 +91,7 @@ Home Assistant wyświetla wszystkie publikowane encje w jednym urządzeniu o naz
 - ESP32-C3 Super Mini z 4 MB pamięci flash;
 - natywny port USB/JTAG do pierwszej instalacji lub odzyskiwania;
 - sieć Wi-Fi 2,4 GHz;
-- instalacja Steinel NightmatIQ Plus widoczna na koncie Steinel.
+- plik kopii (.json) sieci Steinel Bluetooth Mesh, pobrany z aplikacji Steinel Connect.
 
 Interfejs USB zwykle pojawia się jako urządzenie Espressif USB JTAG/serial (`303a:1001`) oraz `/dev/ttyACM*` w systemie Linux.
 
@@ -115,7 +115,7 @@ Firmware jest przeznaczony dla ESP32-C3 i ESP-IDF. Rozszerzone funkcje Bluetooth
 | Ścieżka | Przeznaczenie |
 |---|---|
 | `esphome/nightmatiq-c3.yaml` | Główna konfiguracja firmware ESPHome |
-| `esphome/components/nightmatiq_mesh/` | Komponent Bluetooth Mesh, Steinel Cloud i lokalnego WWW |
+| `esphome/components/nightmatiq_mesh/` | Komponent Bluetooth Mesh, obsługi wielu urządzeń i lokalnego WWW |
 | `scripts/` | Instalacja, walidacja, USB i OTA |
 | `home-assistant/` | Opcjonalny pakiet i zwarte okno sterowania Home Assistant |
 | `docs/images/` | Publiczne obrazy README |
@@ -138,7 +138,7 @@ ESPHome Web przetwarza plik lokalnie. Obraz `-factory.bin` służy do nowej pły
 - komputer z systemem Linux lub macOS;
 - Python 3 i obsługiwane środowisko ESPHome;
 - dostęp USB przy pierwszej instalacji;
-- dostęp sieciowy do ESP32-C3 i Steinel Cloud podczas pierwszej konfiguracji;
+- dostęp sieciowy do ESP32-C3 podczas pierwszej konfiguracji;
 - Home Assistant jest opcjonalny.
 
 Dostarczony instalator tworzy odizolowane, powtarzalne środowisko z niezmodyfikowanym ESPHome `2026.7.3`. Do zainstalowanego pakietu ESPHome nie jest nakładany żaden patch.
@@ -190,11 +190,10 @@ Konfiguracja Wi-Fi jest zapisywana przez urządzenie i pozostaje po aktualizacji
 2. Zaloguj się jako `admin`, używając fabrycznego hasła `12345678`.
 3. W panelu **Gateway administration** zmień hasło w widocznej sekcji **Administrator access**. To samo nowe hasło będzie zatwierdzało kolejne aktualizacje firmware.
 4. Po automatycznym restarcie zaloguj się ponownie.
-5. Wpisz dane konta Steinel Cloud i pobierz listę sieci.
-6. Wybierz sieć zawierającą NightmatIQ.
-7. Zainstaluj konfigurację i poczekaj na restart bramki.
+5. W sekcji **Set up your network** wybierz plik kopii (.json) swojej sieci Steinel (pobrany z aplikacji Steinel Connect) i kliknij **Import backup file**.
+6. Poczekaj na restart bramki. Wszystkie urządzenia znalezione w kopii pojawią się w sekcji **Devices**.
 
-Adres węzła NightmatIQ i IV Index zwykle mogą zostać wybrane automatycznie z kopii sieci. Dane logowania pozostają tylko w formularzu przeglądarki na czas żądań konfiguracyjnych.
+Adres węzła NightmatIQ i IV Index są wybierane automatycznie z kopii. Plik zawiera klucze Mesh: nie udostępniaj go i nigdy nie dodawaj do repozytorium.
 
 ## 6. Aktualizacja przez Wi-Fi
 
@@ -258,11 +257,13 @@ Jeżeli skonfigurowana sieć Wi-Fi jest niedostępna przez 60 sekund, bramka pon
 - Po imporcie kopii sieci poczekaj na synchronizację IV Index.
 - Użyj przycisku **Odśwież**, aby zażądać aktualnego stanu.
 
-### Nie udaje się pobrać sieci Steinel
+### Import kopii nie powiódł się
 
-- Sprawdź, czy konto ma dostęp do instalacji w oficjalnej aplikacji Steinel.
-- Sprawdź dostęp do Internetu, DNS i czas systemowy w sieci bramki.
-- Po nieudanym żądaniu konfiguracji poczekaj na restart bramki i spróbuj ponownie.
+- Sprawdź, czy plik jest kopią Bluetooth Mesh w formacie `.json` z kluczami sieci, aplikacji i urządzeń.
+- Najpierw usuń istniejącą konfigurację; import jest przyjmowany tylko wtedy, gdy nie ma zainstalowanej sieci.
+- Plik musi zmieścić się w nieaktywnej partycji firmware (poniżej około 1,7 MB).
+- Pobierz kopię z aplikacji Steinel Connect ponownie, jeśli plik wygląda na niekompletny.
+- Przeczytaj komunikat na górze strony i spróbuj ponownie.
 
 ### Aktualizacja OTA nie działa
 

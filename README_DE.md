@@ -14,7 +14,7 @@ Autor und Betreuer: **Bartosz Supcziński** — <bartek@env.pl>
 
 ## Funktionsweise
 
-NightmatIQ Plus verwendet Bluetooth Mesh, während Home Assistant über ein IP-Netzwerk kommuniziert. Der ESP32-C3 verbindet beide Umgebungen: Er tritt der vorhandenen Mesh-Installation bei, tauscht Befehle und Statusmeldungen direkt mit dem Sensor aus und veröffentlicht sie über ESPHome. Steinel Cloud wird nur während der Einrichtung zum Import der Netzwerkkonfiguration benötigt; der laufende Betrieb erfolgt lokal.
+NightmatIQ Plus verwendet Bluetooth Mesh, während Home Assistant über ein IP-Netzwerk kommuniziert. Der ESP32-C3 verbindet beide Umgebungen: Er tritt der vorhandenen Mesh-Installation bei, tauscht Befehle und Statusmeldungen direkt mit dem Sensor aus und veröffentlicht sie über ESPHome. Die Netzwerkkonfiguration wird einmalig aus einer lokalen Sicherungsdatei importiert; ein Steinel-Konto oder Cloud-Zugriff ist nicht nötig, und der laufende Betrieb erfolgt lokal.
 
 ## Abbildungen
 
@@ -44,12 +44,20 @@ Ein optionales Frontend-Modul fasst Sensorzustand, Beleuchtungsstärke, Betriebs
 
 ### Lokale Bluetooth-Mesh-Integration
 
-- Import einer Steinel-Netzwerksicherung mit dem im Browser eingegebenen Konto.
+- Import einer Steinel-Netzwerksicherung (.json) aus einer lokalen Datei, ohne Steinel-Konto.
 - Wiederherstellung von Netzwerk- und Anwendungsschlüssel, IV Index und NightmatIQ-Knotendaten.
 - Direkte Kommunikation mit NightmatIQ über Bluetooth Mesh.
 - Lesen von Ausgangszustand, Beleuchtungsstärke, Dämmerungsschwelle, Firmwareversion, Hardwareversion und Produktidentität.
 - Steuerung der Betriebsarten `Auto`, `Always On` und `Always Off`.
 - Einstellung der Dämmerungsschwelle von `1` bis `1500 lx`.
+
+### Alle Geräte des Netzwerks
+
+- Speichert jeden steuerbaren Knoten der Sicherung, nicht nur das NightmatIQ Plus.
+- Liest Schaltzustand, Helligkeit, Automatikmodus, Bewegung und Beleuchtungsstärke jedes Geräts.
+- Steuert Leuchten: Ein/Aus, Helligkeit und Automatikmodus (sensorgesteuert).
+- Lokale API: `GET /api/nodes` und `POST /api/nodes/<Adresse>?on=1&brightness=40&auto=0`.
+- Optionale Home-Assistant-Integration für alle Geräte: `home-assistant/custom_components/steinel_mesh_gateway`.
 
 ### Zuverlässige Adress- und Sitzungsverwaltung
 
@@ -57,11 +65,11 @@ Ein optionales Frontend-Modul fasst Sensorzustand, Beleuchtungsstärke, Betriebs
 - Automatische Wiederherstellung, wenn Mesh-Teilnehmer eine wiederverwendete Quelladresse ablehnen.
 - Dauerhafte Bestätigung der ersten funktionierenden Quelladresse, damit spätere Neustarts oder eine vorübergehende Nichterreichbarkeit des Sensors keinen unnötigen Adresswechsel auslösen.
 - Erhalt der Mesh-Einstellungen bei normalen Neustarts und OTA-Aktualisierungen.
-- Begrenzte Wiederholungsversuche und kontrollierte Neustarts beim Wechsel zwischen Cloud- und Bluetooth-Betrieb.
+- Begrenzte Wiederholungsversuche und kontrollierte Neustarts beim Wechsel des Bluetooth-Betriebs.
 
 ### Weboberfläche des Geräts
 
-- NightmatIQ-Einrichtung über Steinel Cloud.
+- Einrichtung durch Import einer Sicherungsdatei, mit einer Karte für jedes Gerät.
 - Direkte Steuerung und manuelle Statusabfrage.
 - Anzeige der installierten Konfiguration und erweiterter Diagnosedaten.
 - Mesh-RSSI sowie Übertragungs-, Antwort- und Timeout-Zähler.
@@ -86,7 +94,7 @@ Home Assistant zeigt alle Entitäten unter einem Gerät namens **Steinel Nightma
 
 ## Hardware und Kompatibilität
 
-Erforderlich sind ein ESP32-C3 Super Mini mit 4 MB Flash, eine 2,4-GHz-WLAN-Verbindung und eine im Steinel-Konto vorhandene NightmatIQ-Plus-Installation. Für Erstinstallation und Wiederherstellung wird die native USB/JTAG-Seriell-Verbindung verwendet.
+Erforderlich sind ein ESP32-C3 Super Mini mit 4 MB Flash, eine 2,4-GHz-WLAN-Verbindung und die Sicherungsdatei (.json) Ihres Steinel-Bluetooth-Mesh-Netzwerks, die Sie aus der Steinel-Connect-App erhalten. Für Erstinstallation und Wiederherstellung wird die native USB/JTAG-Seriell-Verbindung verwendet.
 
 Unter Linux erscheint die USB-Schnittstelle normalerweise als Espressif USB JTAG/serial (`303a:1001`) und als `/dev/ttyACM*`.
 
@@ -116,7 +124,7 @@ ESPHome Web verarbeitet die Datei lokal. `-factory.bin` ist für ein neues Board
 
 ## Kompilieren aus dem Quellcode
 
-Erforderlich sind Linux oder macOS, Python 3, USB-Zugriff für die Erstinstallation und Netzwerkzugriff auf ESP32-C3 sowie Steinel Cloud während der Einrichtung. Home Assistant ist optional.
+Erforderlich sind Linux oder macOS, Python 3, USB-Zugriff für die Erstinstallation und Netzwerkzugriff auf den ESP32-C3 während der Einrichtung. Home Assistant ist optional.
 
 Der Installer erstellt eine isolierte, reproduzierbare Umgebung mit unverändertem ESPHome `2026.7.3`. Das installierte ESPHome-Paket wird nicht gepatcht.
 
@@ -147,9 +155,10 @@ Die WLAN-Konfiguration bleibt bei Firmware-Aktualisierungen erhalten.
 1. Öffnen Sie die Gateway-Adresse und melden Sie sich mit `admin` / `12345678` an.
 2. Ändern Sie unter **Gateway administration** im sichtbaren Bereich **Administrator access** das Administratorkennwort.
 3. Melden Sie sich nach dem automatischen Neustart erneut an.
-4. Geben Sie die Steinel-Cloud-Zugangsdaten ein und laden Sie die Netzwerkliste.
-5. Wählen Sie das Netzwerk mit NightmatIQ und installieren Sie die Konfiguration.
-6. Warten Sie auf den Neustart des Gateways.
+4. Wählen Sie unter **Set up your network** die Sicherungsdatei (.json) Ihres Steinel-Netzwerks (aus der Steinel-Connect-App) und klicken Sie auf **Import backup file**.
+5. Warten Sie auf den Neustart des Gateways. Alle in der Sicherung gefundenen Geräte erscheinen anschließend unter **Devices**.
+
+Die Datei enthält Ihre Mesh-Schlüssel: Halten Sie sie privat und übertragen Sie sie niemals in ein Repository.
 
 Knotenadresse und IV Index können normalerweise automatisch aus der Sicherung bestimmt werden. Die Zugangsdaten bleiben nur für die Einrichtungsanfragen im Browserformular.
 
@@ -204,11 +213,13 @@ Ist das konfigurierte WLAN 60 Sekunden lang nicht verfügbar, startet das Gatewa
 - Warten Sie nach dem Import auf die Synchronisierung des IV Index.
 - Fordern Sie den aktuellen Zustand mit **Refresh** an.
 
-### Steinel-Netzwerk kann nicht geladen werden
+### Import der Sicherung schlägt fehl
 
-- Prüfen Sie, ob das Konto in der offiziellen Steinel-Anwendung Zugriff auf die Installation hat.
-- Prüfen Sie Internetzugang, DNS und Systemzeit im Gateway-Netz.
-- Warten Sie nach einem fehlgeschlagenen Einrichtungsversuch auf den Neustart und versuchen Sie es erneut.
+- Prüfen Sie, ob die Datei eine Bluetooth-Mesh-Sicherung im Format `.json` mit Netzwerk-, Anwendungs- und Gerätschlüsseln ist.
+- Entfernen Sie zuerst eine vorhandene Konfiguration; ein Import wird nur ohne installiertes Netzwerk akzeptiert.
+- Die Datei muss in die inaktive Firmware-Partition passen (unter etwa 1,7 MB).
+- Beziehen Sie die Sicherung erneut aus der Steinel-Connect-App, falls die Datei unvollständig wirkt.
+- Lesen Sie die Fehlermeldung oben auf der Seite und versuchen Sie es erneut.
 
 ### OTA-Aktualisierung schlägt fehl
 

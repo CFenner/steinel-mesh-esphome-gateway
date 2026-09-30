@@ -14,7 +14,7 @@ Author and maintainer: **Bartosz Supcziński** — <bartek@env.pl>
 
 ## Why this project exists
 
-NightmatIQ Plus communicates through Bluetooth Mesh, while Home Assistant uses an IP network. The ESP32-C3 bridges these two environments: it joins the existing Mesh installation, exchanges commands and status messages directly with the sensor, and publishes them through ESPHome. Steinel Cloud is used during setup to import the network configuration; routine operation is local.
+NightmatIQ Plus communicates through Bluetooth Mesh, while Home Assistant uses an IP network. The ESP32-C3 bridges these two environments: it joins the existing Mesh installation, exchanges commands and status messages directly with the sensor, and publishes them through ESPHome. The network configuration is imported once from a local backup file; no Steinel account or cloud access is needed, and routine operation is local.
 
 ## Screenshots
 
@@ -44,12 +44,20 @@ An optional frontend module combines sensor state, illuminance, operating mode a
 
 ### Local Bluetooth Mesh integration
 
-- Imports a Steinel network backup using the account supplied in the browser.
+- Imports a Steinel network backup (.json) from a local file, without a Steinel account.
 - Restores the network key, application key, IV Index and NightmatIQ node information.
 - Communicates directly with the NightmatIQ over Bluetooth Mesh.
 - Reads actual output state, illuminance, twilight threshold, firmware version, hardware revision and product identity.
 - Controls `Auto`, `Always On` and `Always Off` operating modes.
 - Changes the twilight threshold from `1` to `1500 lx`.
+
+### All devices of the network
+
+- Stores every controllable node from the backup, not only the NightmatIQ Plus.
+- Reads on/off state, brightness, automatic mode, motion and illuminance of each device.
+- Controls lamps: on/off, brightness and automatic (sensor controlled) mode.
+- Local API: `GET /api/nodes` and `POST /api/nodes/<address>?on=1&brightness=40&auto=0`.
+- Optional Home Assistant integration for all devices: `home-assistant/custom_components/steinel_mesh_gateway`.
 
 ### Reliable address and session handling
 
@@ -57,11 +65,11 @@ An optional frontend module combines sensor state, illuminance, operating mode a
 - Recovers automatically when Mesh peers reject a reused source address.
 - Persists the first confirmed source address, preventing unnecessary changes after later restarts or temporary sensor outages.
 - Preserves Mesh settings across normal reboots and OTA updates.
-- Uses bounded retries and controlled restarts around cloud and Bluetooth transitions.
+- Uses bounded retries and controlled restarts around Bluetooth transitions.
 
 ### Device web interface
 
-- NightmatIQ setup from Steinel Cloud.
+- Network setup by importing a backup file, with a card for every device.
 - Live control and state refresh.
 - Installed configuration and extended diagnostics.
 - Mesh RSSI and response counters.
@@ -91,7 +99,7 @@ Home Assistant displays all published entities under one device named **Steinel 
 - ESP32-C3 Super Mini with 4 MB flash;
 - native USB/JTAG serial connection for the first installation or recovery;
 - 2.4 GHz Wi-Fi network;
-- Steinel NightmatIQ Plus installation present in the Steinel account.
+- Backup file (.json) of your Steinel Bluetooth Mesh network, obtained from the Steinel Connect app.
 
 The USB interface normally appears as an Espressif USB JTAG/serial device (`303a:1001`) and as `/dev/ttyACM*` on Linux.
 
@@ -115,7 +123,7 @@ The firmware is designed for the ESP32-C3 and ESP-IDF. Bluetooth 5 extended feat
 | Path | Purpose |
 |---|---|
 | `esphome/nightmatiq-c3.yaml` | Main ESPHome firmware configuration |
-| `esphome/components/nightmatiq_mesh/` | Bluetooth Mesh, Steinel Cloud and local web component |
+| `esphome/components/nightmatiq_mesh/` | Bluetooth Mesh, multi-device engine and local web component |
 | `scripts/` | Installation, validation, USB and OTA helpers |
 | `home-assistant/` | Optional Home Assistant package and compact control dialog |
 | `docs/images/` | Public README images |
@@ -138,7 +146,7 @@ The file is processed locally by ESPHome Web. The `-factory.bin` image is for a 
 - Linux or macOS host;
 - Python 3 and a supported ESPHome environment;
 - USB access for the first installation;
-- network access to the ESP32-C3 and Steinel Cloud during initial setup;
+- network access to the ESP32-C3 during initial setup;
 - Home Assistant is optional.
 
 The supplied installer creates an isolated, reproducible environment using unmodified ESPHome `2026.7.3`. No patch is applied to the installed ESPHome package.
@@ -190,11 +198,10 @@ The Wi-Fi configuration is stored by the device and survives firmware updates.
 2. Sign in as `admin` with factory password `12345678`.
 3. In **Gateway administration**, change the password in the visible **Administrator access** section. The same new password will authorize future firmware updates.
 4. Sign in again after the automatic restart.
-5. Enter the Steinel Cloud account credentials and download the network list.
-6. Select the network containing the NightmatIQ device.
-7. Install the configuration and allow the gateway to restart.
+5. Under **Set up your network**, choose the backup file (.json) of your Steinel network (obtained from the Steinel Connect app) and select **Import backup file**.
+6. Allow the gateway to restart. Every device found in the backup then appears under **Devices**.
 
-The NightmatIQ node address and IV Index can normally be selected automatically from the backup. Credentials remain only in the browser form for the setup requests.
+The NightmatIQ node address and IV Index are selected automatically from the backup. The file contains your Mesh keys: keep it private and never commit it to a repository.
 
 ## 6. Updating over Wi-Fi
 
@@ -258,11 +265,13 @@ If the configured Wi-Fi network is unavailable for 60 seconds, the gateway start
 - Wait for IV Index synchronization after importing a network backup.
 - Use **Refresh** to request the current state.
 
-### Steinel network download fails
+### Backup import fails
 
-- Confirm that the account can access the installation in the official Steinel application.
-- Check internet access, DNS and system time on the gateway network.
-- Wait for the gateway to restart after a failed setup request, then try again.
+- Confirm that the file is a Bluetooth Mesh backup in `.json` format that contains your network and application keys and the device keys.
+- Remove an existing configuration first; an import is only accepted while no network is installed.
+- The file must fit into the inactive firmware partition (below about 1.7 MB).
+- Obtain the backup from the Steinel Connect app again if the file looks incomplete.
+- Read the error shown at the top of the page, then try again.
 
 ### OTA update fails
 

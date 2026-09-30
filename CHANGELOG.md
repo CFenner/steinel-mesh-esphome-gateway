@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented in this file.
 
+## Unreleased
+
+Generic multi-node support (work in progress, not yet tested on hardware).
+
+- Network setup is now a local `.json` backup import. The Steinel Cloud download and its login form were removed.
+- All controllable nodes of the backup are stored and restored, not only the NightmatIQ Plus.
+- `GET /steinel/nodes` lists the stored nodes; `GET /api/nodes` adds live state (on/off, brightness, automatic mode, sensor readings).
+- `POST /api/nodes/<address>` with `on`, `brightness` (0-100) and `auto` controls a lamp.
+- New Home Assistant custom integration `steinel_mesh_gateway` creates lights, automatic-mode switches, illuminance and presence sensors for every node.
+- Bluetooth Mesh limits raised (12 nodes, replay protection list of 16) and a Light Lightness client added.
+
 ## 1.1.1 — 2026-08-27
 
 - Wi-Fi credentials can now be changed from the local gateway administration page.
