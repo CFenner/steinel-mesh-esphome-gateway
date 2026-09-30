@@ -222,14 +222,8 @@ for source, marker in (
     (web_source, "mesh_last_rssi_age_seconds"),
     (page_source, "Last Mesh RSSI"),
     (page_source, "meshRssi"),
-    (web_source, "retryable_transport_error"),
-    (web_source, "http_status <= 0"),
-    (web_source, "CLOUD_ERROR_REBOOT_DELAY_MS"),
-    (web_source, "CLOUD_DISCOVER_SESSION_TIMEOUT_MS"),
-    (web_source, "schedule_cloud_session_reboot_"),
     (web_source, "api::global_api_server->on_shutdown()"),
     (web_source, "api::global_api_server->teardown()"),
-    (mesh, "cloud_session_reboot_pending_"),
     (header_source, "web_refresh_pending_"),
     (mesh, "this->request_refresh()"),
     (web_source, 'url == "/steinel/mode"'),
@@ -274,10 +268,6 @@ for source, marker in (
     (web_source, 'send_json_(request, 200, "{\\\"message\\\":\\\"Changing NightmatIQ mode\\\"}")'),
     (web_source, 'send_json_(request, 200, "{\\\"message\\\":\\\"Changing twilight threshold\\\"}")'),
     (web_source, 'send_json_(request, 200, "{\\\"message\\\":\\\"Refreshing NightmatIQ state\\\"}")'),
-    (page_source, "NightmatIQ control"),
-    (page_source, "modeControl"),
-    (page_source, "thresholdControl"),
-    (page_source, "refreshControl"),
     (page_source, "Administrator access"),
     (page_source, "Gateway administration"),
     (page_source, "Factory reset"),
@@ -306,7 +296,12 @@ for source, marker in (
         errors.append(f"missing required source marker: {marker}")
 
 if '<details class="maintenance-section"><summary>Administrator access</summary>' in page_source:
-    errors.append("administrator access must remain directly visible")
+    errors.append("administrator access must not be folded on its own; it belongs to the folded administration section")
+# The administration area is folded by default. So a factory password cannot go
+# unnoticed, the page must flag it and open the section on first load.
+for marker in ('<details id="adminSection">', 'id="adminWarn"', "j.factory_password&&!adminAutoOpened"):
+    if marker not in page_source:
+        errors.append(f"folded administration section is missing: {marker}")
 if 'class="maintenance-section danger-zone"' in page_source:
     errors.append("factory reset must use the standard administration section separator")
 
@@ -368,10 +363,46 @@ for forbidden_source_marker in (
         errors.append(f"obsolete Mesh address interface remains public: {forbidden_source_marker}")
 
 control_handlers = web_source.split("void NightmatiqMesh::handle_mode_", 1)[1].split(
-    "bool NightmatiqMesh::cloud_get_", 1
+    "bool NightmatiqMesh::parse_backup_", 1
 )[0]
 if "send_json_(request, 202" in control_handlers:
     errors.append("NightmatIQ web controls must use an HTTP status supported by web_server_idf")
+
+nodes_source = (root / "esphome/components/nightmatiq_mesh/nightmatiq_nodes.cpp").read_text(encoding="utf-8")
+if "send_json_(request, 202" in nodes_source:
+    errors.append("node API must use an HTTP status supported by web_server_idf (200, 204, 400, 401, 404, 409, 422)")
+
+# Multi-node contract: local backup import and the node API.
+for source, marker in (
+    (web_source, 'url == "/steinel/import"'),
+    (web_source, 'url == "/api/nodes"'),
+    (web_source, 'url.find("/api/nodes/") == 0'),
+    (web_source, "handleBody"),
+    (header_source, "StoredNodeTable"),
+    (nodes_source, "advance_node_engine_"),
+    (page_source, "IMPORT BACKUP FILE"),
+    (page_source, "/steinel/import"),
+    (page_source, "/api/nodes"),
+):
+    if marker not in source:
+        errors.append(f"missing multi-node source marker: {marker}")
+
+# The Steinel Cloud download was removed on purpose: setup is a local file import.
+for forbidden_cloud_marker in (
+    "connectapp.steinel.de",
+    "discover_networks_",
+    "cloud_get_",
+    "start_cloud_job_",
+    "CloudJob",
+    'url == "/steinel/discover"',
+    'url == "/steinel/install"',
+):
+    for label, source in (("firmware", web_source), ("header", header_source), ("mesh", mesh)):
+        if forbidden_cloud_marker in source:
+            errors.append(f"removed Steinel Cloud feature remains in {label}: {forbidden_cloud_marker}")
+for forbidden_page_marker in ("/steinel/discover", "/steinel/install", "DOWNLOAD NETWORK LIST"):
+    if forbidden_page_marker in page_source:
+        errors.append(f"removed Steinel Cloud feature remains in GUI: {forbidden_page_marker}")
 
 if errors:
     for error in errors:

@@ -11,7 +11,6 @@
 #include <string_view>
 #include <utility>
 
-#include "cJSON.h"
 #include "esp_bt.h"
 #include "esp_bt_main.h"
 #include "esp_crt_bundle.h"
@@ -37,11 +36,7 @@
 namespace esphome::nightmatiq_mesh {
 
 static const char *const WEB_TAG = "nightmatiq_web";
-static const char *const API_BASE = "https://connectapp.steinel.de/api";
-static constexpr uint32_t CLOUD_TASK_STACK_BYTES = 8192;
-static constexpr uint32_t CLOUD_ERROR_REBOOT_DELAY_MS = 20000;
-static constexpr uint32_t CLOUD_DISCOVER_SESSION_TIMEOUT_MS = 300000;
-static constexpr uint32_t CLOUD_API_SHUTDOWN_TIMEOUT_MS = 5000;
+static constexpr uint32_t IMPORT_TASK_STACK_BYTES = 8192;
 static constexpr uint32_t AUTO_UPDATE_TASK_STACK_BYTES = 10240;
 static const char *const RELEASE_ASSET_REDIRECT_PREFIX =
     "https://release-assets.githubusercontent.com/";
@@ -157,35 +152,21 @@ struct NightmatiqMesh::AutoUpdateContext {
   bool accept_firmware_data{false};
 };
 
-struct NightmatiqMesh::CloudTaskArgs {
+struct NightmatiqMesh::ImportTaskArgs {
   NightmatiqMesh *owner;
-  CloudJob job;
-  std::string email;
-  std::string password;
-  std::string network_id;
   uint32_t iv_index;
   uint16_t node_address;
 };
 
-struct NightmatiqMesh::CloudBody {
-  bool use_flash{false};
-  uint8_t *memory{nullptr};
-  size_t capacity{0};
+// The uploaded backup is written straight into the inactive OTA partition, so a
+// backup of several hundred kilobytes never has to fit in RAM.
+struct NightmatiqMesh::BackupBody {
   size_t length{0};
   const esp_partition_t *partition{nullptr};
   size_t erased_bytes{0};
   esp_err_t sink_error{ESP_OK};
 
-  ~CloudBody() {
-    if (this->memory != nullptr) {
-      std::memset(this->memory, 0, this->capacity);
-      heap_caps_free(this->memory);
-    }
-  }
-
-  bool prepare(bool flash, std::string &error) {
-    this->use_flash = flash;
-    if (!flash) return true;
+  bool prepare(std::string &error) {
     this->partition = esp_ota_get_next_update_partition(nullptr);
     const esp_partition_t *running = esp_ota_get_running_partition();
     if (this->partition == nullptr || this->partition == running || this->partition->size < 64 * 1024) {
@@ -195,20 +176,7 @@ struct NightmatiqMesh::CloudBody {
     return true;
   }
 
-  void reset_for_retry() {
-    this->length = 0;
-    this->sink_error = ESP_OK;
-    if (this->memory != nullptr && this->capacity != 0) std::memset(this->memory, 0, this->capacity);
-    // Already-erased OTA sectors can be written again from offset zero. Keep
-    // erased_bytes so a transient HTTPS retry does not perform another flash
-    // erase cycle; append() will extend the erased area only when required.
-  }
-
-  size_t limit() const {
-    return this->use_flash && this->partition != nullptr
-               ? this->partition->size
-               : NightmatiqMesh::MAX_DISCOVERY_RESPONSE_BYTES;
-  }
+  size_t limit() const { return this->partition != nullptr ? this->partition->size : 0; }
 
   bool append(const uint8_t *data, size_t size) {
     if (data == nullptr || size == 0) return true;
@@ -217,54 +185,23 @@ struct NightmatiqMesh::CloudBody {
       return false;
     }
     const size_t required = this->length + size;
-    if (this->use_flash) {
-      constexpr size_t SECTOR_SIZE = 4096;
-      const size_t erase_target = std::min<size_t>(this->partition->size,
-                                           (required + SECTOR_SIZE - 1) & ~(SECTOR_SIZE - 1));
-      if (erase_target > this->erased_bytes) {
-        this->sink_error = esp_partition_erase_range(this->partition, this->erased_bytes,
-                                                     erase_target - this->erased_bytes);
-        if (this->sink_error != ESP_OK) return false;
-        this->erased_bytes = erase_target;
-      }
-      this->sink_error = esp_partition_write(this->partition, this->length, data, size);
+    constexpr size_t SECTOR_SIZE = 4096;
+    const size_t erase_target = std::min<size_t>(this->partition->size,
+                                                 (required + SECTOR_SIZE - 1) & ~(SECTOR_SIZE - 1));
+    if (erase_target > this->erased_bytes) {
+      this->sink_error = esp_partition_erase_range(this->partition, this->erased_bytes,
+                                                   erase_target - this->erased_bytes);
       if (this->sink_error != ESP_OK) return false;
-    } else {
-      const size_t required_with_terminator = required + 1;
-      if (required_with_terminator > this->capacity) {
-        const size_t wanted = std::min(this->limit() + 1,
-                                       (required_with_terminator + 2047U) & ~static_cast<size_t>(2047U));
-        void *resized = heap_caps_realloc(this->memory, wanted, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-        if (resized == nullptr) {
-          this->sink_error = ESP_ERR_NO_MEM;
-          return false;
-        }
-        this->memory = static_cast<uint8_t *>(resized);
-        this->capacity = wanted;
-      }
-      std::memcpy(this->memory + this->length, data, size);
-      this->memory[required] = 0;
+      this->erased_bytes = erase_target;
     }
+    this->sink_error = esp_partition_write(this->partition, this->length, data, size);
+    if (this->sink_error != ESP_OK) return false;
     this->length = required;
     return true;
   }
 };
 
 namespace {
-
-const cJSON *object_item(const cJSON *object, const char *name) {
-  return object == nullptr ? nullptr : cJSON_GetObjectItemCaseSensitive(object, name);
-}
-
-std::string json_string(const cJSON *object, const char *name) {
-  const cJSON *value = object_item(object, name);
-  return cJSON_IsString(value) && value->valuestring != nullptr ? value->valuestring : "";
-}
-
-uint32_t json_uint(const cJSON *object, const char *name, uint32_t fallback = 0) {
-  const cJSON *value = object_item(object, name);
-  return cJSON_IsNumber(value) && value->valuedouble >= 0 ? static_cast<uint32_t>(value->valuedouble) : fallback;
-}
 
 bool decode_hex(const char *text, uint8_t *output, size_t output_size) {
   if (text == nullptr) return false;
@@ -302,6 +239,21 @@ bool parse_hex_address(const char *text, uint16_t &output) {
 
 bool parse_hex_address(const std::string &text, uint16_t &output) {
   return parse_hex_address(text.c_str(), output);
+}
+
+// Company and product identifiers use the full 16-bit range, unlike unicast
+// addresses.
+bool parse_hex_id(const char *text, uint16_t &output) {
+  if (text == nullptr) return false;
+  const size_t length = std::strlen(text);
+  if (length == 0 || length > 6) return false;
+  const char *start = text;
+  if (length > 2 && text[0] == '0' && (text[1] == 'x' || text[1] == 'X')) start += 2;
+  char *end = nullptr;
+  const unsigned long parsed = std::strtoul(start, &end, 16);
+  if (end == nullptr || *end != '\0' || parsed > 0xFFFF) return false;
+  output = static_cast<uint16_t>(parsed);
+  return true;
 }
 
 class FlashJsonReader {
@@ -477,7 +429,12 @@ template<typename Handler> bool read_array(FlashJsonReader &reader, Handler hand
   }
 }
 
+constexpr size_t BACKUP_NODE_ELEMENTS = 6;
+
 struct BackupNode {
+  uint16_t company_id{0};
+  uint16_t product_id{0};
+  std::array<uint16_t, BACKUP_NODE_ELEMENTS> element_caps{};
   uint16_t address{0};
   uint16_t element_count{0};
   uint16_t bound_app_key{0};
@@ -536,6 +493,27 @@ struct BackupSummary {
   char mesh_name[48]{};
 };
 
+constexpr uint16_t BACKUP_CAP_ONOFF = 0x0001;
+constexpr uint16_t BACKUP_CAP_LEVEL = 0x0002;
+constexpr uint16_t BACKUP_CAP_LIGHTNESS = 0x0004;
+constexpr uint16_t BACKUP_CAP_LC = 0x0008;
+constexpr uint16_t BACKUP_CAP_SENSOR = 0x0010;
+constexpr uint16_t BACKUP_CAP_SCENE = 0x0020;
+constexpr uint16_t BACKUP_CAP_SCHEDULER = 0x0040;
+
+uint16_t backup_capability(const char *model_id) {
+  struct Entry { const char *id; uint16_t cap; };
+  static constexpr Entry ENTRIES[] = {
+      {"1000", BACKUP_CAP_ONOFF},     {"1002", BACKUP_CAP_LEVEL},
+      {"1300", BACKUP_CAP_LIGHTNESS}, {"130F", BACKUP_CAP_LC},
+      {"1100", BACKUP_CAP_SENSOR},    {"1203", BACKUP_CAP_SCENE},
+      {"1206", BACKUP_CAP_SCHEDULER},
+  };
+  for (const Entry &entry : ENTRIES)
+    if (strcasecmp(model_id, entry.id) == 0) return entry.cap;
+  return 0;
+}
+
 bool read_first_binding(FlashJsonReader &reader, uint16_t &binding, bool &valid) {
   return read_array(reader, [&](size_t index) {
     if (index != 0) return reader.skip_value();
@@ -556,6 +534,8 @@ bool read_model(FlashJsonReader &reader, size_t element_index, BackupNode &node)
         if (std::strcmp(key, "bind") == 0) return read_first_binding(reader, binding, binding_valid);
         return reader.skip_value();
       })) return false;
+  if (element_index < node.element_caps.size())
+    node.element_caps[element_index] |= backup_capability(model_id);
   if (element_index == 0) {
     node.model_1000 |= std::strcmp(model_id, "1000") == 0;
     node.model_1200 |= std::strcmp(model_id, "1200") == 0;
@@ -591,6 +571,14 @@ bool read_node(FlashJsonReader &reader, BackupNode &node) {
     if (std::strcmp(key, "deviceKey") == 0) {
       device_key_seen = true;
       return reader.read_string(device_key, sizeof(device_key));
+    }
+    if (std::strcmp(key, "cid") == 0 || std::strcmp(key, "pid") == 0) {
+      char text[12]{};
+      if (!reader.read_string(text, sizeof(text))) return false;
+      uint16_t value = 0;
+      if (parse_hex_id(text, value))
+        (key[0] == 'c' ? node.company_id : node.product_id) = value;
+      return true;
     }
     if (std::strcmp(key, "unicastAddress") == 0) {
       char address[12]{};
@@ -749,15 +737,6 @@ bool read_backup(FlashJsonReader &reader, BackupSummary &summary) {
 
 }  // namespace
 
-esp_err_t NightmatiqMesh::cloud_http_event_(esp_http_client_event_t *event) {
-  if (event->event_id != HTTP_EVENT_ON_DATA || event->data == nullptr || event->data_len <= 0)
-    return ESP_OK;
-  auto *body = static_cast<CloudBody *>(event->user_data);
-  return body != nullptr && body->append(static_cast<const uint8_t *>(event->data), event->data_len)
-             ? ESP_OK
-             : ESP_FAIL;
-}
-
 bool NightmatiqMesh::load_config_() {
   StoredConfig loaded{};
   if (!this->config_preference_.load(&loaded) || loaded.magic != CONFIG_MAGIC ||
@@ -769,7 +748,7 @@ bool NightmatiqMesh::load_config_() {
   // Version 2 initially stored the primary element as the sensor address.
   // NightmatIQ exposes Sensor Server 0x1100 on its third element. Migrate the
   // already-imported configuration in place so users do not need to download
-  // the cloud backup again after updating the firmware.
+  // the backup again after updating the firmware.
   if (loaded.sensor_address == loaded.onoff_address &&
       loaded.lc_address == static_cast<uint16_t>(loaded.onoff_address + 1)) {
     loaded.sensor_address = static_cast<uint16_t>(loaded.onoff_address + 2);
@@ -794,6 +773,48 @@ bool NightmatiqMesh::load_device_key_() {
   this->device_key_ = stored.key;
   this->device_key_valid_ = true;
   return true;
+}
+
+bool NightmatiqMesh::load_node_table_() {
+  StoredNodeTable loaded{};
+  if (!this->node_table_preference_.load(&loaded) || loaded.magic != NODE_TABLE_MAGIC ||
+      loaded.version != NODE_TABLE_VERSION || loaded.count > loaded.nodes.size()) {
+    this->node_table_ = StoredNodeTable{};
+    this->node_table_valid_ = false;
+    return false;
+  }
+  for (StoredNode &node : loaded.nodes) node.name[sizeof(node.name) - 1] = '\0';
+  this->node_table_ = loaded;
+  this->node_table_valid_ = loaded.count > 0;
+  return this->node_table_valid_;
+}
+
+bool NightmatiqMesh::save_node_table_(const StoredNodeTable &table) {
+  if (!this->node_table_preference_.save(&table)) return false;
+  this->node_table_ = table;
+  this->node_table_valid_ = table.count > 0;
+  return true;
+}
+
+void NightmatiqMesh::clear_node_table_() {
+  StoredNodeTable empty{};
+  empty.magic = 0;
+  this->node_table_preference_.save(&empty);
+  this->node_table_ = StoredNodeTable{};
+  this->node_table_valid_ = false;
+}
+
+// Friendly names for the Steinel products seen in real networks. The identifier
+// is the Bluetooth Mesh Product ID (pid) carried in the backup.
+const char *NightmatiqMesh::product_name_(uint16_t company_id, uint16_t product_id) {
+  if (company_id != STEINEL_COMPANY_ID) return "";
+  switch (product_id) {
+    case NIGHTMATIQ_PRODUCT_ID: return "NightmatIQ Plus";
+    case 0x1DE0: return "IS 180";
+    case 0x1E79: return "L 810 SC";
+    case 0x1EBD: return "L 810 C";
+    default: return "";
+  }
 }
 
 void NightmatiqMesh::load_retired_address_() {
@@ -1022,6 +1043,7 @@ void NightmatiqMesh::clear_config_() {
   StoredConfig empty{};
   empty.magic = 0;
   this->config_preference_.save(&empty);
+  this->clear_node_table_();
   StoredDeviceKey empty_key{};
   empty_key.magic = 0;
   this->device_key_preference_.save(&empty_key);
@@ -1398,9 +1420,11 @@ bool NightmatiqMesh::canHandle(AsyncWebServerRequest *request) const {
   char url_buffer[AsyncWebServerRequest::URL_BUF_SIZE];
   const StringRef url = request->url_to(url_buffer);
   if (request->method() == HTTP_GET)
-    return url == "/" || url == "/steinel" || url == "/steinel/status";
+    return url == "/" || url == "/steinel" || url == "/steinel/status" || url == "/steinel/nodes" ||
+           url == "/api/nodes";
+  if (request->method() == HTTP_POST && url.find("/api/nodes/") == 0) return true;
   return request->method() == HTTP_POST &&
-         (url == "/steinel/discover" || url == "/steinel/install" || url == "/steinel/enable" ||
+         (url == "/steinel/import" || url == "/steinel/enable" ||
           url == "/steinel/disable" || url == "/steinel/remove" ||
           url == "/steinel/mode" || url == "/steinel/threshold" ||
           url == "/steinel/refresh" || url == "/steinel/password" ||
@@ -1414,8 +1438,10 @@ void NightmatiqMesh::handleRequest(AsyncWebServerRequest *request) {
   const StringRef url = request->url_to(url_buffer);
   if (url == "/" || url == "/steinel") return this->handle_index_(request);
   if (url == "/steinel/status") return this->handle_status_(request);
-  if (url == "/steinel/discover") return this->handle_discover_(request);
-  if (url == "/steinel/install") return this->handle_install_(request);
+  if (url == "/steinel/nodes") return this->handle_nodes_(request);
+  if (url == "/api/nodes") return this->handle_nodes_(request, true);
+  if (url.find("/api/nodes/") == 0) return this->handle_api_node_(request);
+  if (url == "/steinel/import") return this->handle_import_(request);
   if (url == "/steinel/enable") return this->handle_enable_(request);
   if (url == "/steinel/disable") return this->handle_disable_(request);
   if (url == "/steinel/remove") return this->handle_remove_(request);
@@ -1451,7 +1477,7 @@ void NightmatiqMesh::handle_status_(AsyncWebServerRequest *request) {
   body.append(",\"enabled\":");
   body.append(this->mesh_mode_enabled_ ? "true" : "false");
   body.append(",\"busy\":");
-  body.append(this->cloud_busy_.load() || this->auto_update_running_.load() ? "true" : "false");
+  body.append(this->import_busy_.load() || this->auto_update_running_.load() ? "true" : "false");
   body.append(",\"mesh_ready\":");
   body.append(this->mesh_ready_.load() ? "true" : "false");
   body.append(",\"composition_received\":");
@@ -1581,23 +1607,232 @@ void NightmatiqMesh::handle_status_(AsyncWebServerRequest *request) {
     body.append("\"");
     body.append(values);
   }
-  body.append(",\"networks\":[");
-  bool first = true;
-  for (const auto &network : this->networks_) {
-    if (!first) body.append(",");
-    first = false;
-    body.append("{\"id\":\"");
-    body.escaped(network.id.c_str());
+  body.append("}");
+  if (!body.finish())
+    ESP_LOGW(WEB_TAG, "Could not send NightmatIQ status response");
+}
+
+void NightmatiqMesh::handle_nodes_(AsyncWebServerRequest *request, bool with_state) {
+  httpd_req_t *raw_request = static_cast<httpd_req_t *>(*request);
+  httpd_resp_set_status(raw_request, HTTPD_200);
+  httpd_resp_set_type(raw_request, "application/json; charset=utf-8");
+  httpd_resp_set_hdr(raw_request, "Cache-Control", "no-store, no-cache, must-revalidate");
+
+  struct CapName { uint16_t bit; const char *name; };
+  static constexpr CapName CAP_NAMES[] = {
+      {CAP_ONOFF, "onoff"},   {CAP_LEVEL, "level"},   {CAP_LIGHTNESS, "lightness"},
+      {CAP_LC, "light_lc"},   {CAP_SENSOR, "sensor"}, {CAP_SCENE, "scene"},
+      {CAP_SCHEDULER, "scheduler"},
+  };
+
+  StatusJsonWriter body(raw_request);
+  std::lock_guard<std::mutex> lock(this->state_mutex_);
+  body.append("{\"configured\":");
+  body.append(this->configured_ ? "true" : "false");
+  body.append(",\"network\":\"");
+  body.escaped(this->config_.network_name);
+  body.number("\",\"count\":", this->node_table_valid_ ? this->node_table_.count : 0);
+  body.append(",\"nodes\":[");
+  const uint16_t count = this->node_table_valid_ ? this->node_table_.count : 0;
+  char hex[8];
+  for (uint16_t index = 0; index < count; index++) {
+    const StoredNode &node = this->node_table_.nodes[index];
+    uint16_t all_caps = 0;
+    for (uint16_t caps : node.element_caps) all_caps |= caps;
+    if (index != 0) body.append(",");
+    std::snprintf(hex, sizeof(hex), "0x%04X", node.address);
+    body.append("{\"address\":\"");
+    body.append(hex);
     body.append("\",\"name\":\"");
-    body.escaped(network.name.c_str());
-    body.number("\",\"nodes\":", network.nodes);
-    body.append(",\"last_update\":\"");
-    body.escaped(network.last_update.c_str());
-    body.append("\"}");
+    body.escaped(node.name);
+    body.append("\",\"product\":\"");
+    body.escaped(product_name_(node.company_id, node.product_id));
+    std::snprintf(hex, sizeof(hex), "0x%04X", node.company_id);
+    body.append("\",\"company_id\":\"");
+    body.append(hex);
+    std::snprintf(hex, sizeof(hex), "0x%04X", node.product_id);
+    body.append("\",\"product_id\":\"");
+    body.append(hex);
+    body.number("\",\"elements\":", node.element_count);
+    body.append(",\"primary\":");
+    body.append(node.address == this->config_.onoff_address ? "true" : "false");
+    body.append(",\"roles\":[");
+    bool first_role = true;
+    const auto role = [&](bool present, const char *name) {
+      if (!present) return;
+      if (!first_role) body.append(",");
+      first_role = false;
+      body.append("\"");
+      body.append(name);
+      body.append("\"");
+    };
+    role((all_caps & CAP_LIGHTNESS) != 0 || (all_caps & CAP_ONOFF) != 0, "light");
+    role((all_caps & CAP_LC) != 0, "light_control");
+    role((all_caps & CAP_SENSOR) != 0, "sensor");
+    body.append("],\"element_models\":[");
+    const size_t listed = std::min<size_t>(node.element_count, node.element_caps.size());
+    for (size_t element = 0; element < listed; element++) {
+      if (element != 0) body.append(",");
+      body.append("[");
+      bool first_cap = true;
+      for (const CapName &cap : CAP_NAMES) {
+        if ((node.element_caps[element] & cap.bit) == 0) continue;
+        if (!first_cap) body.append(",");
+        first_cap = false;
+        body.append("\"");
+        body.append(cap.name);
+        body.append("\"");
+      }
+      body.append("]");
+    }
+    body.append("]");
+    if (with_state) {
+      // Copy under the lock and write after releasing it: a slow HTTP client
+      // must never block the Bluetooth callbacks that update this state.
+      NodeRuntime runtime;
+      {
+        std::lock_guard<std::mutex> node_lock(this->node_mutex_);
+        runtime = this->node_runtime_[index];
+      }
+      const uint32_t now = millis();
+      const bool reachable = runtime.responded && static_cast<uint32_t>(now - runtime.last_response_at) < 90000UL;
+      body.append(",\"state\":{\"reachable\":");
+      body.append(reachable ? "true" : "false");
+      body.number(",\"age_seconds\":", runtime.responded ? (now - runtime.last_response_at) / 1000UL : 0);
+      body.append(",\"on\":");
+      body.append(runtime.onoff < 0 ? "null" : runtime.onoff ? "true" : "false");
+      body.append(",\"brightness\":");
+      if (runtime.lightness < 0) {
+        body.append("null");
+      } else {
+        body.number("", static_cast<uint32_t>(std::lround(runtime.lightness * 100.0 / 65535.0)));
+      }
+      body.append(",\"auto\":");
+      body.append(runtime.lc_mode < 0 ? "null" : runtime.lc_mode ? "true" : "false");
+      body.number(",\"failures\":", runtime.consecutive_failures);
+      body.append(",\"sensors\":[");
+      for (uint8_t sensor_index = 0; sensor_index < runtime.sensor_count; sensor_index++) {
+        const NodeSensorValue &value = runtime.sensors[sensor_index];
+        char text[40];
+        if (sensor_index != 0) body.append(",");
+        body.number("{\"element\":", value.element);
+        std::snprintf(text, sizeof(text), ",\"property\":\"0x%04X\",\"raw\":\"", value.property);
+        body.append(text);
+        for (uint8_t byte = 0; byte < value.length; byte++) {
+          std::snprintf(text, sizeof(text), "%02X", value.raw[byte]);
+          body.append(text);
+        }
+        body.append("\"");
+        // Decoded conveniences for the standard properties. Anything else is
+        // still reported through the raw bytes above.
+        if (value.property == 0x004E && value.length >= 3) {
+          const uint32_t centilux = value.raw[0] | (value.raw[1] << 8) | (value.raw[2] << 16);
+          std::snprintf(text, sizeof(text), ",\"lux\":%.2f", centilux / 100.0);
+          body.append(text);
+        } else if (value.property == 0x004D && value.length >= 1) {
+          body.append(value.raw[0] != 0 ? ",\"presence\":true" : ",\"presence\":false");
+        } else if (value.property == 0x0042 && value.length >= 1) {
+          body.append(value.raw[0] != 0 && value.raw[0] != 0xFF ? ",\"motion\":true" : ",\"motion\":false");
+        }
+        body.append("}");
+      }
+      body.append("]}");
+    }
+    body.append("}");
   }
   body.append("]}");
   if (!body.finish())
-    ESP_LOGW(WEB_TAG, "Could not send NightmatIQ status response");
+    ESP_LOGW(WEB_TAG, "Could not send node list response");
+}
+
+// The request body is the raw backup JSON. It is streamed straight into the
+// inactive OTA partition; the parse and key import run later in handleRequest.
+void NightmatiqMesh::handleBody(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index,
+                                size_t total) {
+  char url_buffer[AsyncWebServerRequest::URL_BUF_SIZE];
+  const StringRef url = request->url_to(url_buffer);
+  if (url != "/steinel/import") return;
+
+  if (index == 0) {
+    if (this->import_body_ != nullptr) {
+      delete this->import_body_;
+      this->import_body_ = nullptr;
+    }
+    this->import_error_.clear();
+    this->import_error_status_ = 0;
+    // Do not touch flash for a request that would be refused anyway. The 401 is
+    // produced by handleRequest, which runs once the body has been consumed.
+    if (!request->authenticate(this->web_username_.c_str(), this->web_password_.c_str()))
+      return;
+    if (this->import_busy_.load() || this->auto_update_running_.load() || this->reboot_pending_.load()) {
+      this->import_error_ = "Gateway is busy";
+      this->import_error_status_ = 409;
+    } else if (this->configured_) {
+      this->import_error_ = "Remove the current configuration first";
+      this->import_error_status_ = 409;
+    } else {
+      auto *body = new (std::nothrow) BackupBody();
+      std::string error;
+      if (body == nullptr) {
+        this->import_error_ = "Not enough memory for the backup upload";
+        this->import_error_status_ = 503;
+      } else if (!body->prepare(error)) {
+        this->import_error_ = error;
+        this->import_error_status_ = 503;
+        delete body;
+      } else if (total > body->limit()) {
+        this->import_error_ = "Backup exceeds the inactive OTA workspace";
+        this->import_error_status_ = 400;
+        delete body;
+      } else {
+        this->import_body_ = body;
+      }
+    }
+  }
+  if (this->import_body_ == nullptr || this->import_error_status_ != 0) return;
+  if (!this->import_body_->append(data, len)) {
+    this->import_error_ = this->import_body_->sink_error == ESP_ERR_INVALID_SIZE
+                              ? "Backup exceeds the inactive OTA workspace"
+                              : std::string("Backup storage error: ") + esp_err_to_name(this->import_body_->sink_error);
+    this->import_error_status_ = 500;
+    delete this->import_body_;
+    this->import_body_ = nullptr;
+  }
+}
+
+void NightmatiqMesh::handle_import_(AsyncWebServerRequest *request) {
+  const auto fail = [&](int status, const std::string &message) {
+    delete this->import_body_;
+    this->import_body_ = nullptr;
+    this->import_error_.clear();
+    this->import_error_status_ = 0;
+    std::string escaped;
+    for (char c : message) {
+      if (c == '"' || c == '\\') escaped += '\\';
+      if (static_cast<unsigned char>(c) >= 0x20) escaped += c;
+    }
+    send_json_(request, status, "{\"message\":\"" + escaped + "\"}");
+  };
+  if (this->import_error_status_ != 0) return fail(this->import_error_status_, this->import_error_);
+  if (this->import_body_ == nullptr || this->import_body_->length == 0)
+    return fail(400, "No backup file was received");
+
+  uint32_t iv_index = 0;
+  uint16_t node_address = 0;
+  if (!parse_u32_(request->arg("iv_index").c_str(), 0, UINT32_MAX, iv_index) ||
+      !parse_hex_u16_(request->arg("node_address").c_str(), node_address))
+    return fail(400, "Invalid IV Index or node address");
+
+  auto *args = new (std::nothrow) ImportTaskArgs{this, iv_index, node_address};
+  if (args == nullptr) return fail(503, "Not enough memory to process the backup");
+  this->import_busy_.store(true);
+  this->set_status_("Validating uploaded network backup");
+  if (xTaskCreate(import_task_, "steinel_import", IMPORT_TASK_STACK_BYTES, args, 2, nullptr) != pdPASS) {
+    delete args;
+    this->import_busy_.store(false);
+    return fail(503, "Could not start the backup import task");
+  }
+  send_json_(request, 200, "{\"message\":\"Backup uploaded; validating and importing\"}");
 }
 
 bool NightmatiqMesh::parse_u32_(const std::string &value, uint32_t minimum, uint32_t maximum, uint32_t &output) {
@@ -1614,79 +1849,35 @@ bool NightmatiqMesh::parse_hex_u16_(const std::string &value, uint16_t &output) 
   return parse_hex_address(value, output);
 }
 
-bool NightmatiqMesh::is_safe_uuid_(const std::string &value) {
-  return value.size() >= 32 && value.size() <= 40 &&
-         std::all_of(value.begin(), value.end(), [](char c) {
-           return std::isxdigit(static_cast<unsigned char>(c)) || c == '-';
-         });
-}
-
-void NightmatiqMesh::handle_discover_(AsyncWebServerRequest *request) {
-  if (this->cloud_busy_.load()) return send_json_(request, 409, "{\"message\":\"Another cloud request is running\"}");
-  if (this->mesh_mode_enabled_)
-    return send_json_(request, 409, "{\"message\":\"Disable or remove NightmatIQ before cloud setup\"}");
-  if (this->reboot_pending_.load())
-    return send_json_(request, 409, "{\"message\":\"Gateway restart is pending\"}");
-  const std::string email = request->arg("email").c_str();
-  const std::string password = request->arg("password").c_str();
-  if (email.empty() || password.empty()) return send_json_(request, 400, "{\"message\":\"Email and password are required\"}");
-  if (!this->start_cloud_job_(CloudJob::DISCOVER, email, password))
-    return send_json_(request, 503, "{\"message\":\"Not enough memory to start Steinel Cloud request\"}");
-  // web_server_idf maps unsupported status codes (including 202) to 500.
-  // The job remains asynchronous; HTTP 200 confirms that it was scheduled.
-  send_json_(request, 200, "{\"message\":\"Downloading Steinel networks\"}");
-}
-
-void NightmatiqMesh::handle_install_(AsyncWebServerRequest *request) {
-  if (this->cloud_busy_.load()) return send_json_(request, 409, "{\"message\":\"Another cloud request is running\"}");
-  if (this->reboot_pending_.load())
-    return send_json_(request, 409, "{\"message\":\"Gateway restart is pending\"}");
-  if (this->configured_)
-    return send_json_(request, 409, "{\"message\":\"Remove the current NightmatIQ configuration first\"}");
-  const std::string email = request->arg("email").c_str();
-  const std::string password = request->arg("password").c_str();
-  const std::string network_id = request->arg("network_id").c_str();
-  uint32_t iv_index = 0;
-  uint16_t node_address = 0;
-  if (email.empty() || password.empty() || !is_safe_uuid_(network_id))
-    return send_json_(request, 400, "{\"message\":\"Valid credentials and network are required\"}");
-  if (!parse_u32_(request->arg("iv_index").c_str(), 0, UINT32_MAX, iv_index) ||
-      !parse_hex_u16_(request->arg("node_address").c_str(), node_address))
-    return send_json_(request, 400, "{\"message\":\"Invalid IV Index or node address\"}");
-  if (!this->start_cloud_job_(CloudJob::INSTALL, email, password, network_id, iv_index, node_address))
-    return send_json_(request, 503, "{\"message\":\"Not enough memory to start Steinel Cloud request\"}");
-  send_json_(request, 200, "{\"message\":\"Downloading and validating the selected backup\"}");
-}
-
 void NightmatiqMesh::handle_enable_(AsyncWebServerRequest *request) {
-  if (this->cloud_busy_.load()) return send_json_(request, 409, "{\"message\":\"Cloud request in progress\"}");
-  if (!this->configured_) return send_json_(request, 409, "{\"message\":\"Install a NightmatIQ configuration first\"}");
+  if (this->import_busy_.load()) return send_json_(request, 409, "{\"message\":\"Backup import in progress\"}");
+  if (!this->configured_) return send_json_(request, 409, "{\"message\":\"Import a network backup first\"}");
   if ((this->config_.flags & FLAG_REMOVE_PENDING) != 0)
     return send_json_(request, 409, "{\"message\":\"Configuration removal is already in progress\"}");
-  if (this->mesh_mode_enabled_) return send_json_(request, 200, "{\"message\":\"NightmatIQ is already enabled\"}");
+  if (this->mesh_mode_enabled_) return send_json_(request, 200, "{\"message\":\"Bluetooth Mesh is already enabled\"}");
   if (!this->save_enabled_(true)) return send_json_(request, 500, "{\"message\":\"Could not save the enabled state\"}");
-  this->set_status_("NightmatIQ enabled; rebooting into Bluetooth Mesh mode");
+  this->set_status_("Bluetooth Mesh enabled; rebooting");
   this->reboot_at_ = millis() + 1500;
   this->reboot_pending_.store(true);
-  send_json_(request, 200, "{\"message\":\"NightmatIQ enabled; configuration preserved\"}");
+  send_json_(request, 200, "{\"message\":\"Bluetooth Mesh enabled; configuration preserved\"}");
 }
 
 void NightmatiqMesh::handle_disable_(AsyncWebServerRequest *request) {
-  if (this->cloud_busy_.load()) return send_json_(request, 409, "{\"message\":\"Cloud request in progress\"}");
-  if (!this->configured_) return send_json_(request, 409, "{\"message\":\"No NightmatIQ configuration is installed\"}");
+  if (this->import_busy_.load()) return send_json_(request, 409, "{\"message\":\"Backup import in progress\"}");
+  if (!this->configured_) return send_json_(request, 409, "{\"message\":\"No network is imported\"}");
   if ((this->config_.flags & FLAG_REMOVE_PENDING) != 0)
     return send_json_(request, 409, "{\"message\":\"Configuration removal is already in progress\"}");
-  if (!this->mesh_mode_enabled_) return send_json_(request, 200, "{\"message\":\"NightmatIQ is already disabled\"}");
+  if (!this->mesh_mode_enabled_) return send_json_(request, 200, "{\"message\":\"Bluetooth Mesh is already disabled\"}");
   if (!this->save_enabled_(false)) return send_json_(request, 500, "{\"message\":\"Could not save the disabled state\"}");
   this->force_actual_output_unavailable_();
-  this->set_status_("NightmatIQ disabled; rebooting into setup mode");
+  this->set_status_("Bluetooth Mesh disabled; rebooting into setup mode");
   this->reboot_at_ = millis() + 1500;
   this->reboot_pending_.store(true);
-  send_json_(request, 200, "{\"message\":\"NightmatIQ disabled; saved configuration preserved\"}");
+  send_json_(request, 200, "{\"message\":\"Bluetooth Mesh disabled; saved configuration preserved\"}");
 }
 
 void NightmatiqMesh::handle_remove_(AsyncWebServerRequest *request) {
-  if (this->cloud_busy_.load()) return send_json_(request, 409, "{\"message\":\"Cloud request in progress\"}");
+  if (this->import_busy_.load()) return send_json_(request, 409, "{\"message\":\"Backup import in progress\"}");
   this->force_actual_output_unavailable_();
   if (this->configured_ && this->mesh_started_) {
     if (this->mesh_remove_pending_.exchange(true))
@@ -1704,20 +1895,20 @@ void NightmatiqMesh::handle_remove_(AsyncWebServerRequest *request) {
       return send_json_(request, 500, "{\"message\":\"Could not erase Bluetooth Mesh settings\"}");
     }
     this->clear_config_();
-    this->cloud_ble_resume_pending_.store(true);
+    this->ble_resume_pending_.store(true);
     this->set_status_("Configuration removed; gateway ready for setup");
   } else {
     this->clear_config_();
-    this->cloud_ble_resume_pending_.store(true);
-    this->set_status_("No NightmatIQ configuration; gateway ready for setup");
+    this->ble_resume_pending_.store(true);
+    this->set_status_("No network imported; gateway ready for setup");
   }
-  send_json_(request, 200, "{\"message\":\"NightmatIQ configuration removed\"}");
+  send_json_(request, 200, "{\"message\":\"Network configuration removed\"}");
 }
 
 void NightmatiqMesh::handle_factory_reset_(AsyncWebServerRequest *request) {
   if (this->factory_reset_pending_.load())
     return send_json_(request, 200, "{\"message\":\"Factory reset is already scheduled\"}");
-  if (this->cloud_busy_.load() || this->auto_update_running_.load() ||
+  if (this->import_busy_.load() || this->auto_update_running_.load() ||
       this->auto_update_mode_ || this->reboot_pending_.load())
     return send_json_(request, 409, "{\"message\":\"Gateway is busy\"}");
 
@@ -1731,7 +1922,7 @@ void NightmatiqMesh::handle_factory_reset_(AsyncWebServerRequest *request) {
 void NightmatiqMesh::handle_mode_(AsyncWebServerRequest *request) {
   if (!this->configured_ || !this->mesh_mode_enabled_ || !this->mesh_ready_.load())
     return send_json_(request, 409, "{\"message\":\"Bluetooth Mesh is not ready\"}");
-  if (this->cloud_busy_.load() || this->reboot_pending_.load())
+  if (this->import_busy_.load() || this->reboot_pending_.load())
     return send_json_(request, 409, "{\"message\":\"Gateway is busy\"}");
   const std::string mode = request->arg("mode").c_str();
   if (mode != "Auto" && mode != "Always On" && mode != "Always Off")
@@ -1745,7 +1936,7 @@ void NightmatiqMesh::handle_mode_(AsyncWebServerRequest *request) {
 void NightmatiqMesh::handle_threshold_(AsyncWebServerRequest *request) {
   if (!this->configured_ || !this->mesh_mode_enabled_ || !this->mesh_ready_.load())
     return send_json_(request, 409, "{\"message\":\"Bluetooth Mesh is not ready\"}");
-  if (this->cloud_busy_.load() || this->reboot_pending_.load())
+  if (this->import_busy_.load() || this->reboot_pending_.load())
     return send_json_(request, 409, "{\"message\":\"Gateway is busy\"}");
   uint32_t threshold = 0;
   if (!parse_u32_(request->arg("value").c_str(), 1, 1500, threshold))
@@ -1757,14 +1948,14 @@ void NightmatiqMesh::handle_threshold_(AsyncWebServerRequest *request) {
 void NightmatiqMesh::handle_refresh_(AsyncWebServerRequest *request) {
   if (!this->configured_ || !this->mesh_mode_enabled_ || !this->mesh_ready_.load())
     return send_json_(request, 409, "{\"message\":\"Bluetooth Mesh is not ready\"}");
-  if (this->cloud_busy_.load() || this->reboot_pending_.load())
+  if (this->import_busy_.load() || this->reboot_pending_.load())
     return send_json_(request, 409, "{\"message\":\"Gateway is busy\"}");
   this->web_refresh_pending_.store(true);
   send_json_(request, 200, "{\"message\":\"Refreshing NightmatIQ state\"}");
 }
 
 void NightmatiqMesh::handle_password_(AsyncWebServerRequest *request) {
-  if (this->cloud_busy_.load() || this->reboot_pending_.load())
+  if (this->import_busy_.load() || this->reboot_pending_.load())
     return send_json_(request, 409, "{\"message\":\"Gateway is busy\"}");
 
   std::string password = request->arg("password").c_str();
@@ -1801,7 +1992,7 @@ void NightmatiqMesh::handle_password_(AsyncWebServerRequest *request) {
 }
 
 void NightmatiqMesh::handle_wifi_(AsyncWebServerRequest *request) {
-  if (this->cloud_busy_.load() || this->auto_update_running_.load() ||
+  if (this->import_busy_.load() || this->auto_update_running_.load() ||
       this->reboot_pending_.load())
     return send_json_(request, 409, "{\"message\":\"Gateway is busy\"}");
 
@@ -1835,7 +2026,7 @@ void NightmatiqMesh::handle_wifi_(AsyncWebServerRequest *request) {
 }
 
 void NightmatiqMesh::handle_auto_update_(AsyncWebServerRequest *request) {
-  if (this->cloud_busy_.load() || this->auto_update_running_.load() ||
+  if (this->import_busy_.load() || this->auto_update_running_.load() ||
       this->reboot_pending_.load())
     return send_json_(request, 409, "{\"message\":\"Gateway is busy\"}");
 
@@ -1877,125 +2068,12 @@ void NightmatiqMesh::handle_auto_update_(AsyncWebServerRequest *request) {
              "{\"message\":\"Update scheduled; the gateway will download and verify it after restart\"}");
 }
 
-bool NightmatiqMesh::cloud_get_(const std::string &path, const std::string &email, const std::string &password,
-                                bool use_ota_workspace, CloudBody &body, int &http_status, std::string &error) {
-  if (!body.prepare(use_ota_workspace, error)) return false;
-  const std::string url = std::string(API_BASE) + path;
-  std::string credentials = email + ':' + password;
-  size_t encoded_size = 0;
-  mbedtls_base64_encode(nullptr, 0, &encoded_size, reinterpret_cast<const uint8_t *>(credentials.data()),
-                        credentials.size());
-  std::vector<uint8_t> encoded(encoded_size + 1, 0);
-  if (mbedtls_base64_encode(encoded.data(), encoded.size(), &encoded_size,
-                            reinterpret_cast<const uint8_t *>(credentials.data()), credentials.size()) != 0) {
-    error = "Could not prepare authorization";
-    return false;
-  }
-  std::string authorization = "Basic " + std::string(reinterpret_cast<char *>(encoded.data()), encoded_size);
-  uint8_t mac[6]{};
-  esp_read_mac(mac, ESP_MAC_WIFI_STA);
-  char device[32];
-  std::snprintf(device, sizeof(device), "NMQ-C3-%02X%02X%02X%02X%02X%02X",
-                mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-
-  esp_err_t result = ESP_FAIL;
-  constexpr unsigned MAX_ATTEMPTS = 2;
-  for (unsigned attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    esp_http_client_config_t http_config{};
-    http_config.url = url.c_str();
-    http_config.method = HTTP_METHOD_GET;
-    http_config.timeout_ms = use_ota_workspace ? 60000 : 20000;
-    // esp_http_client streams both responses through http_event(), so these
-    // are transport chunks rather than response-size limits.
-    http_config.buffer_size = 1024;
-    http_config.buffer_size_tx = 512;
-    http_config.event_handler = cloud_http_event_;
-    http_config.user_data = &body;
-    http_config.crt_bundle_attach = esp_crt_bundle_attach;
-    http_config.keep_alive_enable = false;
-    esp_http_client_handle_t client = esp_http_client_init(&http_config);
-    if (client == nullptr) {
-      error = "HTTPS client initialization failed";
-      break;
-    }
-    esp_http_client_set_header(client, "Authorization", authorization.c_str());
-    esp_http_client_set_header(client, "X-Accept-Version", "2.4");
-    esp_http_client_set_header(client, "User-Agent", "A4.1-62");
-    esp_http_client_set_header(client, "Device", device);
-    esp_http_client_set_header(client, "Accept-Language", "en");
-    esp_http_client_set_header(client, "Connection", "close");
-    result = esp_http_client_perform(client);
-    http_status = esp_http_client_get_status_code(client);
-    esp_http_client_cleanup(client);
-    const bool retryable_transport_error =
-        result == ESP_ERR_HTTP_INCOMPLETE_DATA || (result != ESP_OK && http_status <= 0);
-    if (!retryable_transport_error || attempt == MAX_ATTEMPTS || body.sink_error != ESP_OK) break;
-
-    ESP_LOGW(WEB_TAG, "Steinel HTTPS transport error %s after %u bytes; retrying once with a fresh connection",
-             esp_err_to_name(result), static_cast<unsigned>(body.length));
-    body.reset_for_retry();
-    vTaskDelay(pdMS_TO_TICKS(500));
-  }
-  std::fill(credentials.begin(), credentials.end(), '\0');
-  std::fill(authorization.begin(), authorization.end(), '\0');
-  std::fill(encoded.begin(), encoded.end(), 0);
-  this->cloud_response_bytes_.store(static_cast<uint32_t>(std::min<size_t>(body.length, UINT32_MAX)));
-  if (!error.empty()) return false;
-  if (body.sink_error != ESP_OK) {
-    if (body.sink_error == ESP_ERR_INVALID_SIZE)
-      error = use_ota_workspace ? "Network backup exceeds inactive OTA workspace" : "Cloud response is too large";
-    else if (body.sink_error == ESP_ERR_NO_MEM)
-      error = "Not enough memory for the Steinel network list";
-    else
-      error = std::string("Cloud storage error: ") + esp_err_to_name(body.sink_error);
-    return false;
-  }
-  if (result != ESP_OK) { error = std::string("HTTPS error: ") + esp_err_to_name(result); return false; }
-  if (http_status != 200) { error = "Steinel returned HTTP " + std::to_string(http_status); return false; }
-  if (body.length == 0 || body.length > body.limit()) { error = "Invalid cloud response size"; return false; }
-  ESP_LOGI(WEB_TAG, "Steinel response stored in %s: %u bytes",
-           use_ota_workspace ? "inactive OTA workspace" : "RAM",
-           static_cast<unsigned>(body.length));
-  return true;
-}
-
-bool NightmatiqMesh::discover_networks_(const std::string &email, const std::string &password, std::string &error) {
-  CloudBody body;
-  int status = 0;
-  // A full translation sync is larger than 3 MB. Supplying a future delta
-  // cursor while forcing only personal data keeps the response small and still
-  // returns every owned network.
-  if (!this->cloud_get_("/changes?since=4102444800&force_full_personal_sync=true&force_full_translation_sync=false",
-                        email, password, false, body, status, error)) return false;
-  cJSON *root = cJSON_ParseWithLength(reinterpret_cast<const char *>(body.memory), body.length);
-  const cJSON *changed = object_item(object_item(root, "networks"), "changed");
-  if (!cJSON_IsArray(changed)) { cJSON_Delete(root); error = "Cloud response contains no networks"; return false; }
-  std::vector<NetworkChoice> choices;
-  const cJSON *item = nullptr;
-  cJSON_ArrayForEach(item, changed) {
-    NetworkChoice choice;
-    choice.id = json_string(item, "id");
-    choice.name = json_string(item, "name");
-    choice.last_update = json_string(item, "lastUpdate");
-    choice.nodes = static_cast<uint16_t>(std::min<uint32_t>(json_uint(item, "nodes"), UINT16_MAX));
-    // The cloud can retain old, empty networks with the same display name. They
-    // cannot contain a NightmatIQ backup and must not be offered for import.
-    if (is_safe_uuid_(choice.id) && choice.nodes > 0) choices.push_back(std::move(choice));
-  }
-  cJSON_Delete(root);
-  if (choices.empty()) { error = "No usable Steinel network was found"; return false; }
-  {
-    std::lock_guard<std::mutex> lock(this->state_mutex_);
-    this->networks_ = std::move(choices);
-  }
-  return true;
-}
-
-bool NightmatiqMesh::parse_backup_(const CloudBody &body, uint32_t requested_iv_index,
+bool NightmatiqMesh::parse_backup_(const BackupBody &body, uint32_t requested_iv_index,
                                    uint16_t requested_node_address, StoredConfig &config,
                                    std::array<uint8_t, 16> &device_key,
-                                   StoredAddressPolicy &address_policy, std::string &error) {
-  if (!body.use_flash || body.partition == nullptr || body.length == 0) {
+                                   StoredAddressPolicy &address_policy, StoredNodeTable &node_table,
+                                   std::string &error) {
+  if (body.partition == nullptr || body.length == 0) {
     error = "Network backup workspace is not available";
     return false;
   }
@@ -2038,28 +2116,28 @@ bool NightmatiqMesh::parse_backup_(const CloudBody &body, uint32_t requested_iv_
     }
   }
   if (selected == nullptr) {
-    error = "Selected network contains no supported NightmatIQ Plus";
+    error = "The backup contains no supported motion sensor or sensor lamp";
     delete summary;
     return false;
   }
   if (selected->element_count < 3) {
-    error = "NightmatIQ node has an unsupported element layout";
+    error = "The primary device has an unsupported element layout";
     delete summary;
     return false;
   }
   if (!selected->model_1000 || !selected->model_1200 || !selected->model_1206 ||
       !selected->model_130f || !selected->model_1100) {
-    error = "NightmatIQ Bluetooth Mesh models do not match the supported product";
+    error = "The primary device's Bluetooth Mesh models are not supported";
     delete summary;
     return false;
   }
   if (!selected->bind_valid) {
-    error = "NightmatIQ models have no bound AppKey";
+    error = "The primary device's models have no bound AppKey";
     delete summary;
     return false;
   }
   if (!selected->device_key_valid) {
-    error = "NightmatIQ backup has no valid DeviceKey for live identity reads";
+    error = "The backup has no valid DeviceKey for the primary device";
     delete summary;
     return false;
   }
@@ -2104,6 +2182,34 @@ bool NightmatiqMesh::parse_backup_(const CloudBody &body, uint32_t requested_iv_
     return false;
   }
   config.net_key = net->key;
+
+  // Keep every controllable node of the network, not just the primary one. A
+  // node needs its DeviceKey to be addressable by the provisioner and at least
+  // one recognised server model; this leaves out the phone app entry.
+  node_table = StoredNodeTable{};
+  node_table.mesh_uuid = summary->mesh_uuid;
+  for (size_t index = 0; index < summary->node_count; index++) {
+    const BackupNode &node = summary->nodes[index];
+    if (!node.address_valid || !node.device_key_valid || node.element_count == 0) continue;
+    if (std::all_of(node.element_caps.begin(), node.element_caps.end(),
+                    [](uint16_t caps) { return caps == 0; }))
+      continue;
+    if (node_table.count >= node_table.nodes.size()) {
+      ESP_LOGW(WEB_TAG, "Backup has more than %u usable nodes; ignoring the rest",
+               static_cast<unsigned>(node_table.nodes.size()));
+      break;
+    }
+    StoredNode &stored = node_table.nodes[node_table.count++];
+    stored.address = node.address;
+    stored.company_id = node.company_id;
+    stored.product_id = node.product_id;
+    stored.bound_app_key = node.bound_app_key;
+    stored.element_count = static_cast<uint8_t>(std::min<uint16_t>(node.element_count, UINT8_MAX));
+    for (size_t element = 0; element < stored.element_caps.size() && element < node.element_caps.size(); element++)
+      stored.element_caps[element] = node.element_caps[element];
+    stored.device_key = node.device_key;
+    std::snprintf(stored.name, sizeof(stored.name), "%s", node.name);
+  }
 
   if (!summary->unicast_range_valid) {
     error = "Backup has no valid provisioner unicast range";
@@ -2179,163 +2285,60 @@ bool NightmatiqMesh::parse_backup_(const CloudBody &body, uint32_t requested_iv_
   return true;
 }
 
-bool NightmatiqMesh::install_network_(const std::string &email, const std::string &password,
-                                      const std::string &network_id, uint32_t iv_index,
-                                      uint16_t node_address, std::string &error) {
-  CloudBody body;
-  int status = 0;
-  if (!this->cloud_get_("/project/network/" + network_id + "/backup", email, password,
-                        true, body, status, error))
-    return false;
+// The uploaded backup JSON sits in the inactive OTA partition; parse it and
+// store the keys, address policy, node table and primary node configuration.
+bool NightmatiqMesh::install_backup_(BackupBody &body, uint32_t iv_index, uint16_t node_address,
+                                     std::string &error) {
   StoredConfig parsed{};
   std::array<uint8_t, 16> device_key{};
   StoredAddressPolicy address_policy{};
+  auto *table = new (std::nothrow) StoredNodeTable{};
+  if (table == nullptr) { error = "Not enough memory for the node table"; return false; }
   if (!this->parse_backup_(body, iv_index, node_address, parsed, device_key,
-                           address_policy, error))
+                           address_policy, *table, error)) {
+    delete table;
     return false;
+  }
   parsed.flags |= FLAG_ENABLED;
-  if (!this->save_device_key_(device_key)) { error = "Could not save NightmatIQ DeviceKey"; return false; }
-  if (!this->save_address_policy_(address_policy)) {
-    error = "Could not save the automatic Mesh address policy";
-    return false;
-  }
-  if (!this->save_config_(parsed)) { error = "Could not save configuration to flash"; return false; }
-  return true;
-}
-
-bool NightmatiqMesh::start_cloud_job_(CloudJob job, const std::string &email, const std::string &password,
-                                      const std::string &network_id, uint32_t iv_index,
-                                      uint16_t node_address) {
-  this->cloud_session_reboot_pending_.store(false);
-  this->cloud_busy_.store(true);
-  this->set_status_(job == CloudJob::DISCOVER ? "Connecting to Steinel Cloud" : "Downloading network backup");
-  auto *args = new (std::nothrow) CloudTaskArgs{this, job, email, password, network_id, iv_index, node_address};
-  if (args == nullptr) {
-    this->cloud_busy_.store(false);
-    this->schedule_cloud_session_reboot_(CLOUD_ERROR_REBOOT_DELAY_MS);
-    this->set_status_("Could not allocate Steinel Cloud request");
-    return false;
-  }
-
-  this->cloud_api_shutdown_started_.store(false);
-  this->cloud_api_shutdown_pending_.store(true);
-  this->cloud_api_shutdown_deadline_.store(millis() + CLOUD_API_SHUTDOWN_TIMEOUT_MS);
-  this->cloud_pending_args_.store(args);
-  this->pause_ble_for_cloud_();
-  ESP_LOGI(WEB_TAG, "Cloud request queued until ESPHome API and Bluetooth release their memory");
-  return true;
-}
-
-void NightmatiqMesh::advance_cloud_job_() {
-  CloudTaskArgs *pending = this->cloud_pending_args_.load();
-  if (pending == nullptr)
-    return;
-
-  if (this->cloud_api_shutdown_pending_.load()) {
-    if (api::global_api_server != nullptr &&
-        !this->cloud_api_shutdown_started_.exchange(true)) {
-      api::global_api_server->on_shutdown();
-      ESP_LOGI(WEB_TAG, "Closing ESPHome API clients before Steinel HTTPS");
+  const bool saved = [&]() {
+    if (!this->save_device_key_(device_key)) { error = "Could not save the device key"; return false; }
+    if (!this->save_address_policy_(address_policy)) {
+      error = "Could not save the automatic Mesh address policy";
+      return false;
     }
-
-    const bool api_released =
-        api::global_api_server == nullptr || api::global_api_server->teardown();
-    if (!api_released) {
-      const uint32_t deadline = this->cloud_api_shutdown_deadline_.load();
-      if (static_cast<int32_t>(millis() - deadline) < 0)
-        return;
-      pending = this->cloud_pending_args_.exchange(nullptr);
-      if (pending == nullptr)
-        return;
-      std::fill(pending->email.begin(), pending->email.end(), '\0');
-      std::fill(pending->password.begin(), pending->password.end(), '\0');
-      delete pending;
-      this->cloud_api_shutdown_pending_.store(false);
-      this->cloud_busy_.store(false);
-      this->schedule_cloud_session_reboot_(CLOUD_ERROR_REBOOT_DELAY_MS);
-      this->set_status_("Could not close Home Assistant connection for HTTPS");
-      return;
-    }
-
-    this->cloud_api_shutdown_pending_.store(false);
-    this->cloud_ble_pause_deadline_.store(millis() + 7500);
-    this->cloud_ble_pause_pending_.store(true);
-    ESP_LOGI(WEB_TAG, "ESPHome API stopped; releasing Bluetooth memory");
-    return;
-  }
-
-  const bool bluetooth_released =
-      esp_bt_controller_get_status() == ESP_BT_CONTROLLER_STATUS_IDLE &&
-      esp_bluedroid_get_status() == ESP_BLUEDROID_STATUS_UNINITIALIZED;
-  if (!bluetooth_released) {
-    const uint32_t deadline = this->cloud_ble_pause_deadline_.load();
-    if (static_cast<int32_t>(millis() - deadline) < 0)
-      return;
-    pending = this->cloud_pending_args_.exchange(nullptr);
-    if (pending == nullptr)
-      return;
-    std::fill(pending->email.begin(), pending->email.end(), '\0');
-    std::fill(pending->password.begin(), pending->password.end(), '\0');
-    delete pending;
-    this->cloud_busy_.store(false);
-    this->schedule_cloud_session_reboot_(CLOUD_ERROR_REBOOT_DELAY_MS);
-    this->set_status_("Could not release Bluetooth memory for HTTPS");
-    return;
-  }
-
-  pending = this->cloud_pending_args_.exchange(nullptr);
-  if (pending == nullptr)
-    return;
-  const size_t free_internal = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-  const size_t largest_internal = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-  this->cloud_free_after_ble_.store(free_internal);
-  this->cloud_largest_after_ble_.store(largest_internal);
-  ESP_LOGI(WEB_TAG, "Starting cloud task after Bluetooth release: free internal heap=%u, largest block=%u, stack=%u",
-           static_cast<unsigned>(free_internal), static_cast<unsigned>(largest_internal),
-           static_cast<unsigned>(CLOUD_TASK_STACK_BYTES));
-  if (xTaskCreate(cloud_task_, "steinel_cloud", CLOUD_TASK_STACK_BYTES, pending, 2, nullptr) != pdPASS) {
-    std::fill(pending->email.begin(), pending->email.end(), '\0');
-    std::fill(pending->password.begin(), pending->password.end(), '\0');
-    delete pending;
-    this->cloud_busy_.store(false);
-    this->schedule_cloud_session_reboot_(CLOUD_ERROR_REBOOT_DELAY_MS);
-    this->set_status_("Could not start cloud task after Bluetooth release; largest block " +
-                      std::to_string(largest_internal) + " bytes");
-  }
+    if (!this->save_node_table_(*table)) { error = "Could not save the node table"; return false; }
+    if (!this->save_config_(parsed)) { error = "Could not save configuration to flash"; return false; }
+    return true;
+  }();
+  delete table;
+  return saved;
 }
 
-void NightmatiqMesh::schedule_cloud_session_reboot_(uint32_t delay_ms) {
-  this->cloud_session_reboot_at_.store(millis() + delay_ms);
-  this->cloud_session_reboot_pending_.store(true);
-}
-
-void NightmatiqMesh::cloud_task_(void *parameter) {
-  auto *args = static_cast<CloudTaskArgs *>(parameter);
+void NightmatiqMesh::import_task_(void *parameter) {
+  auto *args = static_cast<ImportTaskArgs *>(parameter);
   std::string error;
-  const bool ok = args->job == CloudJob::DISCOVER
-                      ? args->owner->discover_networks_(args->email, args->password, error)
-                      : args->owner->install_network_(args->email, args->password, args->network_id,
-                                                      args->iv_index, args->node_address, error);
-  if (ok && args->job == CloudJob::DISCOVER) {
-    args->owner->set_status_("Select a network containing NightmatIQ", false);
-    args->owner->schedule_cloud_session_reboot_(CLOUD_DISCOVER_SESSION_TIMEOUT_MS);
+  bool ok = false;
+  // The upload already sits in the OTA workspace; the task only parses it and
+  // stores the result.
+  BackupBody *uploaded = args->owner->import_body_;
+  args->owner->import_body_ = nullptr;
+  if (uploaded == nullptr) {
+    error = "Uploaded backup is no longer available";
+  } else {
+    ok = args->owner->install_backup_(*uploaded, args->iv_index, args->node_address, error);
+    delete uploaded;
   }
-  if (ok && args->job == CloudJob::INSTALL) {
-    args->owner->cloud_session_reboot_pending_.store(false);
+  if (ok) {
     args->owner->set_status_("Configuration saved; rebooting", false);
     args->owner->reboot_at_ = millis() + 2000;
     args->owner->reboot_pending_.store(true);
-  }
-  if (!ok) {
+  } else {
     args->owner->set_status_(error, false);
-    args->owner->schedule_cloud_session_reboot_(CLOUD_ERROR_REBOOT_DELAY_MS);
   }
-  args->owner->cloud_busy_.store(false);
-  ESP_LOGI(WEB_TAG, "Cloud task finished: free internal heap=%u, stack high-water=%u",
+  args->owner->import_busy_.store(false);
+  ESP_LOGI(WEB_TAG, "Backup import finished: free internal heap=%u, stack high-water=%u",
            static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
            static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)));
-  std::fill(args->email.begin(), args->email.end(), '\0');
-  std::fill(args->password.begin(), args->password.end(), '\0');
   delete args;
   vTaskDelete(nullptr);
 }

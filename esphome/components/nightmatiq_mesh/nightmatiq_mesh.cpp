@@ -82,6 +82,7 @@ static esp_ble_mesh_client_t onoff_client{};
 static esp_ble_mesh_client_t sensor_client{};
 static esp_ble_mesh_client_t scene_client{};
 static esp_ble_mesh_client_t light_lc_client{};
+static esp_ble_mesh_client_t light_lightness_client{};
 
 static esp_ble_mesh_model_t root_models[] = {
     ESP_BLE_MESH_MODEL_CFG_SRV(&config_server),
@@ -90,6 +91,7 @@ static esp_ble_mesh_model_t root_models[] = {
     ESP_BLE_MESH_MODEL_SENSOR_CLI(nullptr, &sensor_client),
     ESP_BLE_MESH_MODEL_SCENE_CLI(nullptr, &scene_client),
     ESP_BLE_MESH_MODEL_LIGHT_LC_CLI(nullptr, &light_lc_client),
+    ESP_BLE_MESH_MODEL_LIGHT_LIGHTNESS_CLI(nullptr, &light_lightness_client),
 };
 
 static esp_ble_mesh_elem_t elements[] = {
@@ -98,6 +100,11 @@ static esp_ble_mesh_elem_t elements[] = {
 
 static esp_ble_mesh_comp_t composition{};
 static esp_ble_mesh_prov_t *provision = nullptr;
+
+esp_ble_mesh_model_t *NightmatiqMesh::onoff_model_() { return onoff_client.model; }
+esp_ble_mesh_model_t *NightmatiqMesh::sensor_model_() { return sensor_client.model; }
+esp_ble_mesh_model_t *NightmatiqMesh::light_lc_model_() { return light_lc_client.model; }
+esp_ble_mesh_model_t *NightmatiqMesh::light_lightness_model_() { return light_lightness_client.model; }
 
 float NightmatiqMesh::get_setup_priority() const { return setup_priority::AFTER_BLUETOOTH - 1.0f; }
 
@@ -306,7 +313,7 @@ void NightmatiqMesh::begin_identity_scan_() {
   this->identity_scan_params_.scan_duplicate = BLE_SCAN_DUPLICATE_DISABLE;
   this->identity_scan_pending_.store(true);
   this->identity_scan_deadline_ = millis() + IDENTITY_SCAN_PREPARE_TIMEOUT_MS;
-  this->set_status_("Reading NightmatIQ device report");
+  this->set_status_("Reading device report");
 }
 
 void NightmatiqMesh::advance_identity_scan_() {
@@ -625,6 +632,14 @@ bool NightmatiqMesh::deinitialize_mesh_(bool erase_flash) {
 }
 
 bool NightmatiqMesh::restore_target_node_() {
+  // The primary NightmatIQ node is restored first; every other node from the
+  // imported backup follows so the whole network is known to the provisioner.
+  if (!this->restore_primary_node_())
+    return false;
+  return this->restore_node_table_();
+}
+
+bool NightmatiqMesh::restore_primary_node_() {
   if (esp_ble_mesh_provisioner_get_node_with_addr(this->config_.onoff_address) != nullptr)
     return true;
 
@@ -647,11 +662,47 @@ bool NightmatiqMesh::restore_target_node_() {
   const int error = bt_mesh_provisioner_restore_node_info(reinterpret_cast<bt_mesh_node *>(&node));
   if (error != 0) {
     ESP_LOGE(TAG, "Could not restore NightmatIQ node 0x%04X: %d", this->config_.onoff_address, error);
-    this->set_status_("Could not restore NightmatIQ node: " + std::to_string(error));
+    this->set_status_("Could not restore the primary device: " + std::to_string(error));
     return false;
   }
   ESP_LOGI(TAG, "Restored NightmatIQ node address range 0x%04X-0x%04X",
            this->config_.onoff_address, this->config_.onoff_address + node.element_num - 1);
+  return true;
+}
+
+bool NightmatiqMesh::restore_node_table_() {
+  if (!this->node_table_valid_)
+    return true;
+  for (uint16_t index = 0; index < this->node_table_.count; index++) {
+    const StoredNode &stored = this->node_table_.nodes[index];
+    if (stored.address == 0 || stored.address == this->config_.onoff_address ||
+        stored.element_count == 0)
+      continue;
+    if (esp_ble_mesh_provisioner_get_node_with_addr(stored.address) != nullptr)
+      continue;
+
+    esp_ble_mesh_node_t node{};
+    node.unicast_addr = stored.address;
+    node.element_num = stored.element_count;
+    node.net_idx = this->config_.net_key_index;
+    node.flags = 0;
+    node.iv_index = this->config_.iv_index;
+    std::memcpy(node.dev_key, stored.device_key.data(), sizeof(node.dev_key));
+    std::memcpy(node.dev_uuid, this->node_table_.mesh_uuid.data(), sizeof(node.dev_uuid));
+    node.dev_uuid[14] ^= static_cast<uint8_t>(stored.address >> 8);
+    node.dev_uuid[15] ^= static_cast<uint8_t>(stored.address & 0xFF);
+    std::strncpy(node.name, stored.name, sizeof(node.name) - 1);
+
+    const int error = bt_mesh_provisioner_restore_node_info(reinterpret_cast<bt_mesh_node *>(&node));
+    if (error != 0) {
+      // One unusable entry must not prevent the primary node or the remaining
+      // nodes from working.
+      ESP_LOGW(TAG, "Could not restore node '%s' at 0x%04X: %d", stored.name, stored.address, error);
+      continue;
+    }
+    ESP_LOGI(TAG, "Restored node '%s' address range 0x%04X-0x%04X", stored.name, stored.address,
+             stored.address + stored.element_count - 1);
+  }
   return true;
 }
 
@@ -700,7 +751,7 @@ void NightmatiqMesh::advance_mesh_remove_() {
     return;
 
   this->clear_config_();
-  this->cloud_ble_resume_pending_.store(true);
+  this->ble_resume_pending_.store(true);
   this->set_status_("Configuration removed; gateway ready for setup");
 }
 
@@ -811,7 +862,7 @@ void NightmatiqMesh::apply_admin_credentials_() {
 }
 
 void NightmatiqMesh::setup() {
-  ESP_LOGCONFIG(TAG, "Setting up NightmatIQ cloud and Bluetooth Mesh client");
+  ESP_LOGCONFIG(TAG, "Setting up Bluetooth Mesh gateway");
   this->instance_ = this;
   this->config_preference_ = global_preferences->make_preference<StoredConfig>(0x4E4D5101U);
   this->device_key_preference_ = global_preferences->make_preference<StoredDeviceKey>(0x4E4D5102U);
@@ -828,6 +879,8 @@ void NightmatiqMesh::setup() {
       global_preferences->make_preference<StoredAdminCredentials>(0x4E4D5108U);
   this->auto_update_preference_ =
       global_preferences->make_preference<StoredAutoUpdate>(0x4E4D5109U);
+  this->node_table_preference_ =
+      global_preferences->make_preference<StoredNodeTable>(0x4E4D510AU);
   this->load_admin_credentials_();
   this->apply_admin_credentials_();
   this->base_->add_handler(this);
@@ -841,6 +894,7 @@ void NightmatiqMesh::setup() {
   const bool has_config = this->load_config_();
   if (has_config) {
     this->load_device_key_();
+    this->load_node_table_();
     this->mesh_mode_enabled_ =
         (this->config_.flags & (FLAG_ENABLED | FLAG_REMOVE_PENDING)) != 0;
   }
@@ -849,11 +903,11 @@ void NightmatiqMesh::setup() {
     return;
   }
   if (!has_config) {
-    this->set_status_("Gateway ready; configure NightmatIQ on this page");
+    this->set_status_("Gateway ready; import a network backup on this page");
     return;
   }
   if (!this->mesh_mode_enabled_) {
-    this->set_status_("NightmatIQ disabled; gateway in setup mode");
+    this->set_status_("Bluetooth Mesh disabled; gateway in setup mode");
     return;
   }
   this->actual_output_forced_unavailable_.store(false);
@@ -983,7 +1037,7 @@ void NightmatiqMesh::mark_ready_() {
   this->mesh_ready_at_ = millis();
   this->address_recovery_attempted_this_boot_ = false;
   this->ready_publish_pending_.store(true);
-  this->set_status_("Mesh client ready; polling NightmatIQ");
+  this->set_status_("Mesh client ready");
   ESP_LOGI(TAG, "NightmatIQ mesh keys imported and all client models bound");
   if (this->device_key_valid_) {
     this->composition_query_attempts_.store(0);
@@ -1005,7 +1059,7 @@ void NightmatiqMesh::advance_address_recovery_(uint32_t now) {
       this->mesh_rx_messages_.load() != 0 ||
       this->mesh_tx_accepted_.load() < AUTO_ADDRESS_MIN_ACCEPTED_TX ||
       this->mesh_timeouts_.load() < AUTO_ADDRESS_MIN_TIMEOUTS ||
-      this->cloud_busy_.load() || this->reboot_pending_.load() ||
+      this->import_busy_.load() || this->reboot_pending_.load() ||
       this->composition_query_in_flight_.load() ||
       this->access_operation_.load() != AccessOperation::NONE)
     return;
@@ -1148,6 +1202,8 @@ void NightmatiqMesh::provisioning_callback(esp_ble_mesh_prov_cb_event_t event,
       else if (binding.model_id == ESP_BLE_MESH_MODEL_ID_SCENE_CLI)
         self->bind_model_(ESP_BLE_MESH_MODEL_ID_LIGHT_LC_CLI);
       else if (binding.model_id == ESP_BLE_MESH_MODEL_ID_LIGHT_LC_CLI)
+        self->bind_model_(ESP_BLE_MESH_MODEL_ID_LIGHT_LIGHTNESS_CLI);
+      else if (binding.model_id == ESP_BLE_MESH_MODEL_ID_LIGHT_LIGHTNESS_CLI)
         self->keys_bound_();
       break;
     }
@@ -1716,6 +1772,11 @@ void NightmatiqMesh::generic_callback(esp_ble_mesh_generic_client_cb_event_t eve
   NightmatiqMesh *self = NightmatiqMesh::instance_;
   if (self == nullptr || param == nullptr || param->params == nullptr)
     return;
+  if (is_node_operation_(self->access_operation_.load()) &&
+      param->params->opcode == self->access_opcode_.load()) {
+    self->handle_node_generic_(event, param);
+    return;
+  }
   if (event == ESP_BLE_MESH_GENERIC_CLIENT_TIMEOUT_EVT) {
     self->mesh_timeouts_.fetch_add(1);
     self->mesh_generic_timeouts_.fetch_add(1);
@@ -1741,6 +1802,11 @@ void NightmatiqMesh::sensor_callback(esp_ble_mesh_sensor_client_cb_event_t event
   NightmatiqMesh *self = NightmatiqMesh::instance_;
   if (self == nullptr || param == nullptr || param->params == nullptr)
     return;
+  if (is_node_operation_(self->access_operation_.load()) &&
+      param->params->opcode == self->access_opcode_.load()) {
+    self->handle_node_sensor_(event, param);
+    return;
+  }
   if (event == ESP_BLE_MESH_SENSOR_CLIENT_TIMEOUT_EVT) {
     self->revision_catalog_in_flight_.store(false);
     self->mesh_timeouts_.fetch_add(1);
@@ -1821,6 +1887,11 @@ void NightmatiqMesh::light_callback(esp_ble_mesh_light_client_cb_event_t event,
   NightmatiqMesh *self = NightmatiqMesh::instance_;
   if (self == nullptr || param == nullptr || param->params == nullptr)
     return;
+  if (is_node_operation_(self->access_operation_.load()) &&
+      param->params->opcode == self->access_opcode_.load()) {
+    self->handle_node_light_(event, param);
+    return;
+  }
   if (event == ESP_BLE_MESH_LIGHT_CLIENT_TIMEOUT_EVT) {
     self->mesh_timeouts_.fetch_add(1);
     self->mesh_light_timeouts_.fetch_add(1);
@@ -2009,9 +2080,16 @@ void NightmatiqMesh::publish_pending_() {
 
 void NightmatiqMesh::update() {
   if (!this->mesh_ready_.load() || this->poll_stage_ != 0 ||
-      this->access_operation_.load() != AccessOperation::NONE ||
       this->control_kind_ != ControlKind::NONE || this->control_request_pending_())
     return;
+  if (this->access_operation_.load() != AccessOperation::NONE) {
+    // A generic node request may currently hold the access slot. Remember that
+    // the periodic NightmatIQ poll is due so the node engine yields to it,
+    // instead of losing the whole 30-second interval.
+    this->nightmatiq_poll_deferred_ = true;
+    return;
+  }
+  this->nightmatiq_poll_deferred_ = false;
   if (this->control_kind_ == ControlKind::NONE && !this->control_request_pending_() &&
       this->access_operation_.load() == AccessOperation::NONE) {
     this->poll_sensor_rx_start_ = this->mesh_sensor_rx_.load();
@@ -2026,7 +2104,7 @@ void NightmatiqMesh::request_refresh() {
     if (!this->configured_)
       this->set_status_("Configuration required");
     else if (!this->mesh_mode_enabled_)
-      this->set_status_("NightmatIQ disabled; gateway in setup mode");
+      this->set_status_("Bluetooth Mesh disabled; gateway in setup mode");
     else
       this->set_status_("Mesh is still synchronizing");
     return;
@@ -2061,24 +2139,11 @@ void NightmatiqMesh::loop() {
   this->advance_mesh_start_();
   this->advance_mesh_remove_();
   this->monitor_iv_index_();
-  if (this->cloud_ble_pause_pending_.exchange(false)) {
-    if (this->identity_scan_pending_.load())
-      esp_ble_gap_stop_scanning();
-    if (esp32_ble::global_ble != nullptr)
-      esp32_ble::global_ble->disable();
-  }
-  this->advance_cloud_job_();
-  this->resume_ble_after_cloud_();
+  this->resume_ble_after_mesh_();
 
   const uint32_t now = millis();
   if (this->reboot_pending_.load() && static_cast<int32_t>(now - this->reboot_at_) >= 0) {
     this->reboot_pending_.store(false);
-    reboot_after_confirming_firmware();
-    return;
-  }
-  if (this->cloud_session_reboot_pending_.load() && !this->cloud_busy_.load() &&
-      static_cast<int32_t>(now - this->cloud_session_reboot_at_.load()) >= 0) {
-    this->cloud_session_reboot_pending_.store(false);
     reboot_after_confirming_firmware();
     return;
   }
@@ -2098,6 +2163,7 @@ void NightmatiqMesh::loop() {
   this->advance_address_recovery_(now);
   if (this->reboot_pending_.load())
     return;
+  this->advance_node_engine_(now);
   if (this->mode_override_pending_.load() &&
       this->mode_confirmation_deadline_.load() != 0 &&
       static_cast<int32_t>(now - this->mode_confirmation_deadline_.load()) >= 0) {
@@ -2235,14 +2301,8 @@ void NightmatiqMesh::loop() {
   }
 }
 
-void NightmatiqMesh::pause_ble_for_cloud_() {
-  if (this->mesh_mode_enabled_)
-    return;
-  this->cloud_api_shutdown_pending_.store(true);
-}
-
-void NightmatiqMesh::resume_ble_after_cloud_() {
-  if (!this->cloud_ble_resume_pending_.load() || this->mesh_mode_enabled_)
+void NightmatiqMesh::resume_ble_after_mesh_() {
+  if (!this->ble_resume_pending_.load() || this->mesh_mode_enabled_)
     return;
 
   if (esp32_ble::global_ble != nullptr && !esp32_ble::global_ble->is_active()) {
@@ -2252,7 +2312,7 @@ void NightmatiqMesh::resume_ble_after_cloud_() {
 
   // This standalone gateway has no Bluetooth Proxy role. Leave the setup
   // scanner idle until the next explicit identity scan or Mesh-mode reboot.
-  this->cloud_ble_resume_pending_.store(false);
+  this->ble_resume_pending_.store(false);
 }
 
 }  // namespace nightmatiq_mesh

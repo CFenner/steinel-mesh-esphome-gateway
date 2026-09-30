@@ -71,6 +71,8 @@ class NightmatiqMesh final : public PollingComponent, public AsyncWebHandler {
 
   bool canHandle(AsyncWebServerRequest *request) const override;
   void handleRequest(AsyncWebServerRequest *request) override;
+  void handleBody(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index,
+                  size_t total) override;
   bool isRequestHandlerTrivial() const override { return false; }
 
   void set_threshold(float lux);
@@ -113,6 +115,11 @@ class NightmatiqMesh final : public PollingComponent, public AsyncWebHandler {
   static constexpr uint16_t ADMIN_CREDENTIALS_VERSION = 1;
   static constexpr size_t ADMIN_PASSWORD_MIN_LENGTH = 8;
   static constexpr size_t ADMIN_PASSWORD_MAX_LENGTH = 63;
+  static constexpr uint32_t NODE_TABLE_MAGIC = 0x4E4D514EU;  // "NMQN"
+  static constexpr uint16_t NODE_TABLE_VERSION = 1;
+  static constexpr size_t NODE_TABLE_MAX_NODES = 12;
+  static constexpr size_t NODE_MAX_ELEMENTS = 6;
+  static constexpr size_t NODE_NAME_MAX_LENGTH = 31;
   static constexpr uint32_t AUTO_UPDATE_MAGIC = 0x4E4D5155U;  // "NMQU"
   static constexpr uint16_t AUTO_UPDATE_VERSION = 1;
   static constexpr size_t AUTO_UPDATE_VERSION_MAX_LENGTH = 23;
@@ -124,7 +131,6 @@ class NightmatiqMesh final : public PollingComponent, public AsyncWebHandler {
   // Set only after a Secure Network Beacon changes the IV Index or an
   // authenticated Access response proves that the stored value is usable.
   static constexpr uint16_t FLAG_IV_INDEX_CONFIRMED = 0x0004;
-  static constexpr size_t MAX_DISCOVERY_RESPONSE_BYTES = 32 * 1024;
   static constexpr uint32_t ACTUAL_OUTPUT_STALE_MS = 5UL * 60UL * 1000UL;
   // A mode SET is intentionally unacknowledged for immediate lamp control.
   // Confirm its physical result several times before returning to the normal
@@ -223,11 +229,35 @@ class NightmatiqMesh final : public PollingComponent, public AsyncWebHandler {
     uint16_t composition_version_id{0};
   };
 
-  struct NetworkChoice {
-    std::string id;
-    std::string name;
-    std::string last_update;
-    uint16_t nodes{0};
+  // Bit flags describing which Bluetooth Mesh SIG server models an element
+  // exposes. They are derived from the backup and are what a generic client
+  // needs to decide how a node can be controlled.
+  static constexpr uint16_t CAP_ONOFF = 0x0001;      // Generic OnOff Server 0x1000
+  static constexpr uint16_t CAP_LEVEL = 0x0002;      // Generic Level Server 0x1002
+  static constexpr uint16_t CAP_LIGHTNESS = 0x0004;  // Light Lightness Server 0x1300
+  static constexpr uint16_t CAP_LC = 0x0008;         // Light LC Server 0x130F
+  static constexpr uint16_t CAP_SENSOR = 0x0010;     // Sensor Server 0x1100
+  static constexpr uint16_t CAP_SCENE = 0x0020;      // Scene Server 0x1203
+  static constexpr uint16_t CAP_SCHEDULER = 0x0040;  // Scheduler Server 0x1206
+
+  struct StoredNode {
+    uint16_t address{0};
+    uint16_t company_id{0};
+    uint16_t product_id{0};
+    uint16_t bound_app_key{0};
+    uint8_t element_count{0};
+    uint8_t reserved{0};
+    std::array<uint16_t, NODE_MAX_ELEMENTS> element_caps{};
+    std::array<uint8_t, 16> device_key{};
+    char name[NODE_NAME_MAX_LENGTH + 1]{};
+  };
+
+  struct StoredNodeTable {
+    uint32_t magic{NODE_TABLE_MAGIC};
+    uint16_t version{NODE_TABLE_VERSION};
+    uint16_t count{0};
+    std::array<uint8_t, 16> mesh_uuid{};
+    std::array<StoredNode, NODE_TABLE_MAX_NODES> nodes{};
   };
 
   enum class AccessOperation : uint8_t {
@@ -242,6 +272,53 @@ class NightmatiqMesh final : public PollingComponent, public AsyncWebHandler {
     LC_MODE_SET,
     ONOFF_SET,
     SCENE_RECALL,
+    // Requests issued by the generic multi-node engine. They share the single
+    // access slot with the NightmatIQ logic so only one request is ever active.
+    NODE_ONOFF_GET,
+    NODE_LIGHTNESS_GET,
+    NODE_LC_MODE_GET,
+    NODE_SENSOR_GET,
+    NODE_ONOFF_SET,
+    NODE_LIGHTNESS_SET,
+  };
+  static bool is_node_operation_(AccessOperation operation) {
+    return operation >= AccessOperation::NODE_ONOFF_GET;
+  }
+
+  // Requests the generic engine can issue to one element of one stored node.
+  enum class NodeRequestKind : uint8_t {
+    ONOFF_GET,
+    LIGHTNESS_GET,
+    LC_MODE_GET,
+    SENSOR_GET,
+    ONOFF_SET,
+    LIGHTNESS_SET,
+    LC_MODE_SET,
+  };
+  struct NodeRequest {
+    NodeRequestKind kind{NodeRequestKind::ONOFF_GET};
+    uint8_t node{0};
+    uint8_t element{0};
+    uint16_t value{0};
+    bool refresh_after{false};
+  };
+  struct NodeSensorValue {
+    uint16_t element{0};
+    uint16_t property{0};
+    uint8_t length{0};
+    std::array<uint8_t, 6> raw{};
+  };
+  static constexpr size_t NODE_MAX_SENSOR_VALUES = 8;
+  static constexpr size_t NODE_COMMAND_QUEUE_SIZE = 12;
+  struct NodeRuntime {
+    int8_t onoff{-1};
+    int32_t lightness{-1};
+    int8_t lc_mode{-1};
+    bool responded{false};
+    uint32_t last_response_at{0};
+    uint32_t consecutive_failures{0};
+    uint8_t sensor_count{0};
+    std::array<NodeSensorValue, NODE_MAX_SENSOR_VALUES> sensors{};
   };
   enum class ControlKind : uint8_t { NONE, MODE, THRESHOLD };
   enum class ControlStep : uint8_t {
@@ -253,9 +330,8 @@ class NightmatiqMesh final : public PollingComponent, public AsyncWebHandler {
     THRESHOLD_SEND_SET,
     THRESHOLD_WAIT_SET,
   };
-  enum class CloudJob : uint8_t { DISCOVER, INSTALL };
-  struct CloudBody;
-  struct CloudTaskArgs;
+  struct BackupBody;
+  struct ImportTaskArgs;
   struct AutoUpdateContext;
 
   bool initialize_bluetooth_();
@@ -270,6 +346,35 @@ class NightmatiqMesh final : public PollingComponent, public AsyncWebHandler {
   void advance_mesh_remove_();
   void advance_factory_reset_();
   void monitor_iv_index_();
+  bool load_node_table_();
+  bool save_node_table_(const StoredNodeTable &table);
+  void clear_node_table_();
+  bool restore_primary_node_();
+  // Generic multi-node engine (nightmatiq_nodes.cpp).
+  void advance_node_engine_(uint32_t now);
+  void build_node_poll_plan_(int only_node = -1);
+  bool send_node_request_(const NodeRequest &request);
+  bool find_node_index_(uint16_t address, uint8_t &index) const;
+  bool queue_node_command_(const NodeRequest &request);
+  bool submit_node_command_(uint8_t node, int on, int brightness_percent, int auto_mode,
+                            std::string &error);
+  void handle_node_generic_(esp_ble_mesh_generic_client_cb_event_t event,
+                            esp_ble_mesh_generic_client_cb_param_t *param);
+  void handle_node_light_(esp_ble_mesh_light_client_cb_event_t event,
+                          esp_ble_mesh_light_client_cb_param_t *param);
+  void handle_node_sensor_(esp_ble_mesh_sensor_client_cb_event_t event,
+                           esp_ble_mesh_sensor_client_cb_param_t *param);
+  void node_request_failed_();
+  void handle_api_node_(AsyncWebServerRequest *request);
+  static esp_ble_mesh_model_t *onoff_model_();
+  static esp_ble_mesh_model_t *sensor_model_();
+  static esp_ble_mesh_model_t *light_lc_model_();
+  static esp_ble_mesh_model_t *light_lightness_model_();
+  bool restore_node_table_();
+  static const char *product_name_(uint16_t company_id, uint16_t product_id);
+  bool install_backup_(BackupBody &body, uint32_t iv_index, uint16_t node_address, std::string &error);
+  void handle_nodes_(AsyncWebServerRequest *request, bool with_state = false);
+  void handle_import_(AsyncWebServerRequest *request);
   bool load_config_();
   bool load_device_key_();
   bool load_admin_credentials_();
@@ -306,31 +411,17 @@ class NightmatiqMesh final : public PollingComponent, public AsyncWebHandler {
   bool save_device_key_(const std::array<uint8_t, 16> &device_key);
   bool save_enabled_(bool enabled);
   void clear_config_();
-  bool parse_backup_(const CloudBody &body, uint32_t requested_iv_index,
+  bool parse_backup_(const BackupBody &body, uint32_t requested_iv_index,
                      uint16_t requested_node_address, StoredConfig &config,
                      std::array<uint8_t, 16> &device_key,
-                     StoredAddressPolicy &address_policy, std::string &error);
-  bool cloud_get_(const std::string &path, const std::string &email, const std::string &password,
-                  bool use_ota_workspace, CloudBody &body, int &http_status, std::string &error);
-  bool discover_networks_(const std::string &email, const std::string &password, std::string &error);
-  bool install_network_(const std::string &email, const std::string &password,
-                        const std::string &network_id, uint32_t iv_index,
-                        uint16_t node_address, std::string &error);
-  bool start_cloud_job_(CloudJob job, const std::string &email, const std::string &password,
-                        const std::string &network_id = {}, uint32_t iv_index = 0,
-                        uint16_t node_address = 0);
-  void pause_ble_for_cloud_();
-  void advance_cloud_job_();
-  void resume_ble_after_cloud_();
-  void schedule_cloud_session_reboot_(uint32_t delay_ms);
-  static void cloud_task_(void *parameter);
-  static esp_err_t cloud_http_event_(esp_http_client_event_t *event);
+                     StoredAddressPolicy &address_policy, StoredNodeTable &node_table,
+                     std::string &error);
+  void resume_ble_after_mesh_();
+  static void import_task_(void *parameter);
 
   bool authenticate_(AsyncWebServerRequest *request) const;
   void handle_index_(AsyncWebServerRequest *request);
   void handle_status_(AsyncWebServerRequest *request);
-  void handle_discover_(AsyncWebServerRequest *request);
-  void handle_install_(AsyncWebServerRequest *request);
   void handle_enable_(AsyncWebServerRequest *request);
   void handle_disable_(AsyncWebServerRequest *request);
   void handle_remove_(AsyncWebServerRequest *request);
@@ -344,7 +435,6 @@ class NightmatiqMesh final : public PollingComponent, public AsyncWebHandler {
   static void send_json_(AsyncWebServerRequest *request, int code, const std::string &body);
   static bool parse_u32_(const std::string &value, uint32_t minimum, uint32_t maximum, uint32_t &output);
   static bool parse_hex_u16_(const std::string &value, uint16_t &output);
-  static bool is_safe_uuid_(const std::string &value);
   static bool parse_version_(const std::string &value, std::array<uint16_t, 3> &version);
   static bool parse_sha256_(const std::string &value, std::array<uint8_t, 32> &digest);
   void set_status_(const std::string &status, bool publish = true);
@@ -395,6 +485,29 @@ class NightmatiqMesh final : public PollingComponent, public AsyncWebHandler {
   ESPPreferenceObject advertised_identity_preference_;
   ESPPreferenceObject admin_credentials_preference_;
   ESPPreferenceObject auto_update_preference_;
+  ESPPreferenceObject node_table_preference_;
+  StoredNodeTable node_table_{};
+  bool node_table_valid_{false};
+  // Local backup upload. The body is streamed into the inactive OTA partition
+  // so the 200+ KB backup never sits in RAM.
+  // Generic engine state. node_mutex_ guards node_runtime_ and the queues; the
+  // in-flight index is only touched by the main loop and the Mesh callbacks
+  // that complete its request, which never overlap because of the access slot.
+  std::mutex node_mutex_;
+  std::array<NodeRuntime, NODE_TABLE_MAX_NODES> node_runtime_{};
+  std::array<NodeRequest, NODE_COMMAND_QUEUE_SIZE> node_commands_{};
+  size_t node_command_count_{0};
+  std::vector<NodeRequest> node_poll_plan_;
+  size_t node_poll_pos_{0};
+  NodeRequest node_inflight_{};
+  bool node_inflight_valid_{false};
+  uint32_t node_next_action_at_{0};
+  uint32_t node_next_pass_at_{0};
+  bool nightmatiq_poll_deferred_{false};
+  BackupBody *import_body_{nullptr};
+  std::string import_error_;
+  int import_error_status_{0};
+  std::atomic<bool> import_active_{false};
   StoredConfig config_{};
   std::array<uint8_t, 16> device_key_{};
   bool device_key_valid_{false};
@@ -464,20 +577,8 @@ class NightmatiqMesh final : public PollingComponent, public AsyncWebHandler {
   std::atomic<uint8_t> auto_update_progress_{0};
   std::mutex state_mutex_;
   std::string status_{"Configuration required"};
-  std::vector<NetworkChoice> networks_;
-  std::atomic<bool> cloud_busy_{false};
-  std::atomic<CloudTaskArgs *> cloud_pending_args_{nullptr};
-  std::atomic<bool> cloud_api_shutdown_pending_{false};
-  std::atomic<bool> cloud_api_shutdown_started_{false};
-  std::atomic<uint32_t> cloud_api_shutdown_deadline_{0};
-  std::atomic<bool> cloud_ble_pause_pending_{false};
-  std::atomic<bool> cloud_ble_resume_pending_{false};
-  std::atomic<uint32_t> cloud_ble_pause_deadline_{0};
-  std::atomic<bool> cloud_session_reboot_pending_{false};
-  std::atomic<uint32_t> cloud_session_reboot_at_{0};
-  std::atomic<uint32_t> cloud_free_after_ble_{0};
-  std::atomic<uint32_t> cloud_largest_after_ble_{0};
-  std::atomic<uint32_t> cloud_response_bytes_{0};
+  std::atomic<bool> import_busy_{false};
+  std::atomic<bool> ble_resume_pending_{false};
   std::atomic<bool> reboot_pending_{false};
   uint32_t reboot_at_{0};
 
