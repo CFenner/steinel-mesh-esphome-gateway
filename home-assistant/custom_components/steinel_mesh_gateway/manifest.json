@@ -1,0 +1,11 @@
+{
+  "domain": "steinel_mesh_gateway",
+  "name": "Steinel Mesh Gateway",
+  "codeowners": [],
+  "config_flow": true,
+  "documentation": "https://github.com/supczinskib/steinel-nightmatiq-esp32-c3-gateway",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/supczinskib/steinel-nightmatiq-esp32-c3-gateway/issues",
+  "requirements": [],
+  "version": "0.1.0"
+}
