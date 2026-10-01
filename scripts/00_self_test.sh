@@ -209,7 +209,7 @@ for source, marker in (
     (config_source, 'initial_option: "Auto"'),
     (web_source, "mesh_last_rssi_dbm"),
     (web_source, "mesh_last_rssi_age_seconds"),
-    (page_source, "Last Mesh RSSI"),
+    (page_source, "Last RSSI"),
     (page_source, "meshRssi"),
     (web_source, "api::global_api_server->on_shutdown()"),
     (web_source, "api::global_api_server->teardown()"),

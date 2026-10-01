@@ -238,7 +238,7 @@ If the configured Wi-Fi network is unavailable for 60 seconds, the gateway start
 
 ### Mesh is ready but values remain unavailable
 
-- Move the ESP32-C3 closer to the NightmatIQ and check **Last Mesh RSSI** in diagnostics.
+- Move the ESP32-C3 closer to the NightmatIQ and check **Last RSSI** in the Mesh section.
 - Wait for IV Index synchronization after importing a network backup.
 - Use **Refresh** to request the current state.
 
