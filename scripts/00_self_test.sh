@@ -30,7 +30,6 @@ fi
 
 for path in \
   "$ROOT_DIR/README.md" \
-  "$ROOT_DIR/README_DE.md" \
   "$ROOT_DIR/CHANGELOG.md" \
   "$CONFIG" \
   "$ROOT_DIR/esphome/components/nightmatiq_mesh/__init__.py" \
@@ -83,13 +82,7 @@ else
   ok 'no private or development markers in public repository text'
 fi
 
-for navigation in \
-  'README.md:README_DE.md' \
-  'README_DE.md:README.md'; do
-  IFS=: read -r file link <<<"$navigation"
-  grep -Fq "$link" "$ROOT_DIR/$file" || fail "missing language navigation in $file: $link"
-  grep -Fq 'web.esphome.io' "$ROOT_DIR/$file" || fail "missing ready-made installation instructions: $file"
-done
+grep -Fq 'web.esphome.io' "$ROOT_DIR/README.md" || fail 'missing ready-made installation instructions: README.md'
 
 for marker in \
   'variant: esp32c3' \
