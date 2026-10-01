@@ -8,6 +8,7 @@ Generic multi-node support (experimental). Verified on a real network with an IS
 
 - Network setup is now a local `.json` backup import. The Steinel Cloud download and its login form were removed.
 - All controllable nodes of the backup are stored and restored, not only the NightmatIQ Plus.
+- `/api/nodes` also reports the gateway's MAC address so Home Assistant can link the mesh devices to the gateway's ESPHome device.
 - `GET /steinel/nodes` lists the stored nodes; `GET /api/nodes` adds live state (on/off, brightness, automatic mode, sensor readings).
 - `POST /api/nodes/<address>` with `on`, `brightness` (0-100), `auto` and `threshold` (twilight threshold, 1-1500 lx) controls a lamp.
 - New Home Assistant integration `steinel_mesh` (maintained in [HomeAssistant-Steinel-Mesh](https://github.com/CFenner/HomeAssistant-Steinel-Mesh)) creates lights, automatic-mode switches, illuminance and presence sensors for every node.

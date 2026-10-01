@@ -377,6 +377,7 @@ for source, marker in (
     (web_source, "handleBody"),
     (header_source, "StoredNodeTable"),
     (nodes_source, "advance_node_engine_"),
+    (web_source, "mac_text"),
     (nodes_source, "NodeRequestKind::THRESHOLD_SET"),
     (web_source, r'\"threshold\":'),
     (page_source, "IMPORT BACKUP FILE"),

@@ -1625,10 +1625,21 @@ void NightmatiqMesh::handle_nodes_(AsyncWebServerRequest *request, bool with_sta
       {CAP_SCHEDULER, "scheduler"},
   };
 
+  // The gateway's Wi-Fi MAC identifies its ESPHome device in Home Assistant,
+  // which lets the integration show the mesh devices as connected via it.
+  uint8_t mac[6]{};
+  char mac_text[18]{};
+  if (esp_read_mac(mac, ESP_MAC_WIFI_STA) == ESP_OK)
+    std::snprintf(mac_text, sizeof(mac_text), "%02x:%02x:%02x:%02x:%02x:%02x", mac[0], mac[1], mac[2], mac[3],
+                  mac[4], mac[5]);
+
   StatusJsonWriter body(raw_request);
   std::lock_guard<std::mutex> lock(this->state_mutex_);
   body.append("{\"configured\":");
   body.append(this->configured_ ? "true" : "false");
+  body.append(",\"gateway\":{\"mac\":\"");
+  body.append(mac_text);
+  body.append("\"}");
   body.append(",\"network\":\"");
   body.escaped(this->config_.network_name);
   body.number("\",\"count\":", this->node_table_valid_ ? this->node_table_.count : 0);
