@@ -198,6 +198,8 @@ for source, marker in (
     (component_source, "var.set_rssi_sensor(rssi)"),
     (config_source, 'friendly_name: "Steinel Mesh Gateway"'),
     (config_source, 'main_light_internal: "true"'),
+    (config_source, "platform: debug"),
+    (config_source, "id(nightmatiq_gateway).mesh_tx_attempts()"),
     (config_source, "rssi_sensor_id: nightmatiq_rssi"),
     (config_source, 'name: "Signal Strength"'),
     (config_source, "device_class: signal_strength"),

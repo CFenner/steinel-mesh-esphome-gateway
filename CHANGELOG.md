@@ -7,6 +7,7 @@ All notable changes to this project are documented in this file.
 Generic multi-node support (experimental). Verified on a real network with an IS 180, two L 810 SC and an L 810 C; motion detection values are still unconfirmed.
 
 - Removed the optional Home Assistant area tile and compact control dialog (`home-assistant/`); the Home Assistant integration replaces them.
+- The gateway's diagnostics from its web page are also ESPHome entities: uptime, reset reason, free heap, largest free block and the Bluetooth Mesh traffic counters.
 - The ESPHome device is now called "Steinel Mesh Gateway" (project `cfenner.steinel_mesh_gateway`) and its entities have short names such as "Mesh Ready" and "Status"; the entities describing the primary device start with "Primary Device". Because ESPHome derives an entity's ID from its name, Home Assistant creates new entities and leaves the old ones orphaned: delete them after updating. The hostname is unchanged.
 - Network setup is now a local `.json` backup import. The Steinel Cloud download and its login form were removed.
 - All controllable nodes of the backup are stored and restored, not only the NightmatIQ Plus.

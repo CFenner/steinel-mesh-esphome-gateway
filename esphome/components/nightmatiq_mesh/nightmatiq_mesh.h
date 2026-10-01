@@ -79,6 +79,12 @@ class NightmatiqMesh final : public PollingComponent, public AsyncWebHandler {
   void set_mode(const std::string &mode);
   void request_refresh();
   bool mesh_mode_enabled() const { return this->mesh_mode_enabled_; }
+  // Traffic counters, published as diagnostic entities.
+  uint32_t mesh_tx_attempts() const { return this->mesh_tx_attempts_.load(); }
+  uint32_t mesh_tx_errors() const { return this->mesh_tx_errors_.load(); }
+  int32_t mesh_last_tx_error() const { return this->mesh_last_tx_error_.load(); }
+  uint32_t mesh_rx_messages() const { return this->mesh_rx_messages_.load(); }
+  uint32_t mesh_timeouts() const { return this->mesh_timeouts_.load(); }
 
   static void provisioning_callback(esp_ble_mesh_prov_cb_event_t event, esp_ble_mesh_prov_cb_param_t *param);
   static void config_callback(esp_ble_mesh_cfg_client_cb_event_t event,

@@ -159,6 +159,10 @@ wifi:
 
 captive_portal:
 
+# Gateway diagnostics, also listed on the web page.
+debug:
+  update_interval: 60s
+
 mdns:
   disabled: false
 
@@ -198,6 +202,63 @@ sensor:
     name: "Primary Device Hardware Revision"
     accuracy_decimals: 0
     update_interval: never
+    entity_category: diagnostic
+
+  - platform: uptime
+    name: "Uptime"
+    entity_category: diagnostic
+
+  - platform: debug
+    free:
+      name: "Free Heap"
+      entity_category: diagnostic
+    block:
+      name: "Largest Free Block"
+      entity_category: diagnostic
+
+  # Bluetooth Mesh traffic counters of the gateway since it started.
+  - platform: template
+    name: "Mesh Transmissions"
+    icon: mdi:radio-tower
+    lambda: 'return id(nightmatiq_gateway).mesh_tx_attempts();'
+    state_class: total_increasing
+    accuracy_decimals: 0
+    update_interval: 60s
+    entity_category: diagnostic
+
+  - platform: template
+    name: "Mesh Send Errors"
+    icon: mdi:alert-circle-outline
+    lambda: 'return id(nightmatiq_gateway).mesh_tx_errors();'
+    state_class: total_increasing
+    accuracy_decimals: 0
+    update_interval: 60s
+    entity_category: diagnostic
+
+  - platform: template
+    name: "Mesh Last Send Error"
+    icon: mdi:alert-outline
+    lambda: 'return id(nightmatiq_gateway).mesh_last_tx_error();'
+    accuracy_decimals: 0
+    update_interval: 60s
+    entity_category: diagnostic
+
+  - platform: template
+    name: "Mesh Responses"
+    icon: mdi:message-arrow-left-outline
+    lambda: 'return id(nightmatiq_gateway).mesh_rx_messages();'
+    state_class: total_increasing
+    accuracy_decimals: 0
+    update_interval: 60s
+    entity_category: diagnostic
+
+  - platform: template
+    name: "Mesh Timeouts"
+    icon: mdi:timer-alert-outline
+    lambda: 'return id(nightmatiq_gateway).mesh_timeouts();'
+    state_class: total_increasing
+    accuracy_decimals: 0
+    update_interval: 60s
     entity_category: diagnostic
 
   - platform: template
@@ -249,6 +310,11 @@ select:
       - lambda: 'id(nightmatiq_gateway).set_mode(x);'
 
 text_sensor:
+  - platform: debug
+    reset_reason:
+      name: "Reset Reason"
+      entity_category: diagnostic
+
   - platform: template
     id: nightmatiq_status
     name: "Status"
