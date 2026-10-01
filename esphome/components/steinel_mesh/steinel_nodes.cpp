@@ -42,12 +42,14 @@ static constexpr uint8_t NODE_TTL = 7;
 // answered the plain Sensor Get. Tried a limited number of times per device.
 static constexpr uint16_t PROPERTY_AMBIENT_LIGHT_LEVEL = 0x004E;
 static constexpr uint8_t NODE_SENSOR_PROBE_MAX_ATTEMPTS = 5;
-// Light Control properties read once per device after start-up and only logged,
-// to find where a device keeps its on-time after motion and its light levels:
-// Time Occupancy Delay, Time Prolong, Time Run On, the fade times, and the
-// Lightness On / Prolong / Standby levels.
-static constexpr uint16_t LC_PROBE_PROPERTIES[] = {0x003A, 0x003B, 0x003C, 0x0037, 0x0038, 0x0039,
-                                                    0x002E, 0x002F, 0x0030};
+// Light Control "Time Run On": how long the light stays on after the last motion.
+// It is a 24-bit time in milliseconds; 0xFFFFFF means "unknown".
+static constexpr uint16_t LC_TIME_RUN_ON_PROPERTY = 0x003C;
+// The read is repeated for a device that has not answered yet: the first few
+// passes every time, then only now and then, so a device that never answers
+// does not cost traffic forever.
+static constexpr uint8_t NODE_RUN_ON_QUICK_ATTEMPTS = 6;
+static constexpr uint8_t NODE_RUN_ON_SLOW_EVERY = 10;
 
 namespace {
 
@@ -118,14 +120,18 @@ void NightmatiqMesh::build_node_poll_plan_(int only_node) {
     for (size_t element = 0; element < limit; element++)
       if ((node.element_caps[element] & CAP_SENSOR) != 0)
         plan.push_back({NodeRequestKind::SENSOR_GET, index, static_cast<uint8_t>(element), 0, false});
-    if (probe && lc >= 0) {
+    if (lc >= 0) {
+      // Read the run-on time while it is unknown, and again after a command to
+      // this node so a change is confirmed.
       std::lock_guard<std::mutex> lock(this->node_mutex_);
       NodeRuntime &state = this->node_runtime_[index];
-      if (!state.lc_probe_done) {
-        state.lc_probe_done = true;
-        for (const uint16_t property : LC_PROBE_PROPERTIES)
-          plan.push_back({NodeRequestKind::LC_PROPERTY_PROBE, index, static_cast<uint8_t>(lc), property, false});
+      bool ask = !probe;
+      if (probe && state.run_on_ms < 0) {
+        state.run_on_attempts++;
+        ask = state.run_on_attempts <= NODE_RUN_ON_QUICK_ATTEMPTS ||
+              state.run_on_attempts % NODE_RUN_ON_SLOW_EVERY == 0;
       }
+      if (ask) plan.push_back({NodeRequestKind::RUN_ON_GET, index, static_cast<uint8_t>(lc), 0, false});
     }
     if (probe) {
       // A sensor element that has never produced a reading may need to be asked for
@@ -315,17 +321,38 @@ bool NightmatiqMesh::send_node_request_(const NodeRequest &request) {
                                               ESP_BLE_MESH_MODEL_OP_LIGHT_LC_PROPERTY_GET,
                                               esp_ble_mesh_light_client_get_state(&common, &get));
     }
-    case NodeRequestKind::LC_PROPERTY_PROBE: {
+    case NodeRequestKind::RUN_ON_GET: {
       esp_ble_mesh_light_client_get_state_t get{};
       if (!this->set_common_(common, light_lc_model_(), ESP_BLE_MESH_MODEL_OP_LIGHT_LC_PROPERTY_GET, destination))
         break;
       if (!this->begin_access_operation_(AccessOperation::NODE_THRESHOLD_GET,
                                          ESP_BLE_MESH_MODEL_OP_LIGHT_LC_PROPERTY_GET))
         break;
-      get.lc_property_get.property_id = request.value;
+      get.lc_property_get.property_id = LC_TIME_RUN_ON_PROPERTY;
       return this->record_access_send_result_(AccessOperation::NODE_THRESHOLD_GET,
                                               ESP_BLE_MESH_MODEL_OP_LIGHT_LC_PROPERTY_GET,
                                               esp_ble_mesh_light_client_get_state(&common, &get));
+    }
+    case NodeRequestKind::RUN_ON_SET: {
+      esp_ble_mesh_light_client_set_state_t set{};
+      if (!this->set_common_(common, light_lc_model_(), ESP_BLE_MESH_MODEL_OP_LIGHT_LC_PROPERTY_SET, destination))
+        break;
+      if (!this->begin_access_operation_(AccessOperation::NODE_THRESHOLD_SET,
+                                         ESP_BLE_MESH_MODEL_OP_LIGHT_LC_PROPERTY_SET))
+        break;
+      const uint32_t milliseconds = static_cast<uint32_t>(request.value) * 1000U;
+      this->node_threshold_storage_[0] = milliseconds & 0xFF;
+      this->node_threshold_storage_[1] = (milliseconds >> 8) & 0xFF;
+      this->node_threshold_storage_[2] = (milliseconds >> 16) & 0xFF;
+      this->node_threshold_buffer_.data = this->node_threshold_storage_.data();
+      this->node_threshold_buffer_.len = this->node_threshold_storage_.size();
+      this->node_threshold_buffer_.size = this->node_threshold_storage_.size();
+      this->node_threshold_buffer_.__buf = this->node_threshold_storage_.data();
+      set.lc_property_set.property_id = LC_TIME_RUN_ON_PROPERTY;
+      set.lc_property_set.property_value = &this->node_threshold_buffer_;
+      return this->record_access_send_result_(AccessOperation::NODE_THRESHOLD_SET,
+                                              ESP_BLE_MESH_MODEL_OP_LIGHT_LC_PROPERTY_SET,
+                                              esp_ble_mesh_light_client_set_state(&common, &set));
     }
     case NodeRequestKind::THRESHOLD_SET: {
       esp_ble_mesh_light_client_set_state_t set{};
@@ -388,7 +415,7 @@ bool NightmatiqMesh::queue_node_command_(const NodeRequest &request) {
 }
 
 bool NightmatiqMesh::submit_node_command_(uint8_t node_index, int on, int brightness_percent, int auto_mode,
-                                          int threshold_lux, std::string &error) {
+                                          int threshold_lux, int run_on_seconds, std::string &error) {
   if (!this->node_table_valid_ || node_index >= this->node_table_.count) {
     error = "Unknown node";
     return false;
@@ -397,8 +424,8 @@ bool NightmatiqMesh::submit_node_command_(uint8_t node_index, int on, int bright
   const int light = light_element(node.element_caps, node.element_count, CAP_LIGHTNESS, CAP_ONOFF);
   const int lc = first_element_with(node.element_caps, node.element_count, CAP_LC);
   const bool manual = on >= 0 || brightness_percent >= 0;
-  if (!manual && auto_mode < 0 && threshold_lux < 0) {
-    error = "Nothing to do; provide on, brightness, auto or threshold";
+  if (!manual && auto_mode < 0 && threshold_lux < 0 && run_on_seconds < 0) {
+    error = "Nothing to do; provide on, brightness, auto, threshold or run_on";
     return false;
   }
   if (manual && light < 0) {
@@ -413,6 +440,10 @@ bool NightmatiqMesh::submit_node_command_(uint8_t node_index, int on, int bright
     error = "This node has no twilight threshold";
     return false;
   }
+  if (run_on_seconds >= 0 && lc < 0) {
+    error = "This node has no run-on time";
+    return false;
+  }
   if (auto_mode == 1 && manual) {
     error = "Automatic mode cannot be combined with a manual on/off or brightness value";
     return false;
@@ -422,6 +453,9 @@ bool NightmatiqMesh::submit_node_command_(uint8_t node_index, int on, int bright
   if (threshold_lux >= 0)
     list.push_back({NodeRequestKind::THRESHOLD_SET, node_index, static_cast<uint8_t>(lc),
                     static_cast<uint16_t>(threshold_lux), false});
+  if (run_on_seconds >= 0)
+    list.push_back({NodeRequestKind::RUN_ON_SET, node_index, static_cast<uint8_t>(lc),
+                    static_cast<uint16_t>(run_on_seconds), false});
   if (auto_mode >= 0) {
     // Sent twice: unacknowledged messages can be lost, and the lamp ignores
     // the duplicate.
@@ -528,29 +562,39 @@ void NightmatiqMesh::handle_node_light_(esp_ble_mesh_light_client_cb_event_t eve
   const bool lightness = received == ESP_BLE_MESH_MODEL_OP_LIGHT_LIGHTNESS_STATUS;
   const bool lc_mode = received == ESP_BLE_MESH_MODEL_OP_LIGHT_LC_MODE_STATUS;
   const bool property = received == ESP_BLE_MESH_MODEL_OP_LIGHT_LC_PROPERTY_STATUS;
-  if (this->node_inflight_valid_ && this->node_inflight_.node < this->node_table_.count &&
-      this->node_inflight_.kind == NodeRequestKind::LC_PROPERTY_PROBE) {
-    // Probe: only log the outcome, and never count a missing answer against the node.
-    const StoredNode &probed = this->node_table_.nodes[this->node_inflight_.node];
-    if (event == ESP_BLE_MESH_LIGHT_CLIENT_TIMEOUT_EVT || param->error_code != 0 || !property) {
-      ESP_LOGI(NODE_TAG, "Node '%s': light control property 0x%04X: no answer (event=%d error=%d)", probed.name,
-               static_cast<unsigned>(this->node_inflight_.value), static_cast<int>(event),
-               static_cast<int>(param->error_code));
+  if (this->node_inflight_valid_ && this->node_inflight_.node < this->node_runtime_.size() &&
+      (this->node_inflight_.kind == NodeRequestKind::RUN_ON_GET ||
+       this->node_inflight_.kind == NodeRequestKind::RUN_ON_SET)) {
+    const bool is_read = this->node_inflight_.kind == NodeRequestKind::RUN_ON_GET;
+    const auto &status = param->status_cb.lc_property_status;
+    const bool valid = event != ESP_BLE_MESH_LIGHT_CLIENT_TIMEOUT_EVT && param->error_code == 0 && property &&
+                       status.property_id == LC_TIME_RUN_ON_PROPERTY && status.property_value != nullptr &&
+                       status.property_value->len >= 3;
+    uint32_t milliseconds = 0;
+    if (valid) {
+      const uint8_t *value = status.property_value->data;
+      milliseconds = static_cast<uint32_t>(value[0]) | (static_cast<uint32_t>(value[1]) << 8) |
+                     (static_cast<uint32_t>(value[2]) << 16);
+    }
+    if (!valid || milliseconds == 0xFFFFFF) {
+      // A read that goes unanswered is not held against the device; a lost
+      // write is.
+      if (!is_read) this->node_request_failed_();
       this->complete_access_operation_(opcode, false);
       return;
     }
-    const auto &status = param->status_cb.lc_property_status;
-    char hex[40]{};
-    uint32_t number = 0;
-    const size_t length = status.property_value == nullptr ? 0 : status.property_value->len;
-    for (size_t i = 0; i < length && i < 4; i++) {
-      std::snprintf(hex + i * 2, sizeof(hex) - i * 2, "%02X", status.property_value->data[i]);
-      number |= static_cast<uint32_t>(status.property_value->data[i]) << (8 * i);
-    }
-    ESP_LOGI(NODE_TAG, "Node '%s': light control property 0x%04X = %s (%u bytes, value %u)", probed.name,
-             static_cast<unsigned>(status.property_id), length == 0 ? "empty" : hex,
-             static_cast<unsigned>(length), static_cast<unsigned>(number));
     this->note_node_response_(param->params->ctx);
+    {
+      std::lock_guard<std::mutex> lock(this->node_mutex_);
+      NodeRuntime &state = this->node_runtime_[this->node_inflight_.node];
+      if (state.run_on_ms < 0)
+        ESP_LOGI(NODE_TAG, "Node '%s': run-on time %u s", this->node_table_.nodes[this->node_inflight_.node].name,
+                 static_cast<unsigned>(milliseconds / 1000U));
+      state.run_on_ms = static_cast<int32_t>(milliseconds);
+      state.responded = true;
+      state.last_response_at = millis();
+      state.consecutive_failures = 0;
+    }
     this->complete_access_operation_(opcode, true);
     return;
   }
@@ -811,10 +855,12 @@ void NightmatiqMesh::handle_api_node_(AsyncWebServerRequest *request) {
   int auto_mode = -1;
   int brightness = -1;
   int threshold = -1;
+  int run_on = -1;
   const std::string on_arg = request->arg("on");
   const std::string auto_arg = request->arg("auto");
   const std::string brightness_arg = request->arg("brightness");
   const std::string threshold_arg = request->arg("threshold");
+  const std::string run_on_arg = request->arg("run_on");
   if (!on_arg.empty() && !parse_switch(on_arg, on))
     return send_json_(request, 400, "{\"message\":\"on must be 0/1, true/false or on/off\"}");
   if (!auto_arg.empty() && !parse_switch(auto_arg, auto_mode))
@@ -831,9 +877,15 @@ void NightmatiqMesh::handle_api_node_(AsyncWebServerRequest *request) {
       return send_json_(request, 400, "{\"message\":\"threshold must be 1-1500 (lux)\"}");
     threshold = static_cast<int>(parsed);
   }
+  if (!run_on_arg.empty()) {
+    uint32_t parsed = 0;
+    if (!parse_u32_(run_on_arg, 1, 3600, parsed))
+      return send_json_(request, 400, "{\"message\":\"run_on must be 1-3600 (seconds)\"}");
+    run_on = static_cast<int>(parsed);
+  }
 
   std::string error;
-  if (!this->submit_node_command_(index, on, brightness, auto_mode, threshold, error)) {
+  if (!this->submit_node_command_(index, on, brightness, auto_mode, threshold, run_on, error)) {
     std::string escaped;
     for (char c : error)
       if (c != '"' && c != '\\' && static_cast<unsigned char>(c) >= 0x20) escaped += c;

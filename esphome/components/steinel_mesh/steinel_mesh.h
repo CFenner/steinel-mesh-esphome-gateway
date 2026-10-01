@@ -273,9 +273,11 @@ class NightmatiqMesh final : public Component, public AsyncWebHandler {
     // sensor elements that never produced a reading with the plain Sensor Get.
     SENSOR_PROPERTY_GET,
     SENSOR_DESCRIPTOR_GET,
-    // Light LC Property Get for one property id (value). A one-off probe whose
-    // result is only logged; a missing answer does not count against the node.
-    LC_PROPERTY_PROBE,
+    // Light Control "Time Run On": how long the light stays on after the last
+    // motion, in milliseconds. A missing answer to the read is not a failure of
+    // the node: not every device answers every time.
+    RUN_ON_GET,
+    RUN_ON_SET,
   };
   struct NodeRequest {
     NodeRequestKind kind{NodeRequestKind::ONOFF_GET};
@@ -303,7 +305,10 @@ class NightmatiqMesh final : public Component, public AsyncWebHandler {
     uint16_t version_id{0};
     uint8_t version_attempts{0};
     uint8_t sensor_probe_attempts{0};
-    bool lc_probe_done{false};
+    // Light Control Time Run On in ms; -1 while unknown. The attempts count how
+    // often it was asked for while unknown.
+    int32_t run_on_ms{-1};
+    uint8_t run_on_attempts{0};
     bool responded{false};
     uint32_t last_response_at{0};
     uint32_t consecutive_failures{0};
@@ -339,6 +344,7 @@ class NightmatiqMesh final : public Component, public AsyncWebHandler {
   bool find_node_index_(uint16_t address, uint8_t &index) const;
   bool queue_node_command_(const NodeRequest &request);
   bool submit_node_command_(uint8_t node, int on, int brightness_percent, int auto_mode, int threshold_lux,
+                            int run_on_seconds,
                             std::string &error);
   void handle_node_generic_(esp_ble_mesh_generic_client_cb_event_t event,
                             esp_ble_mesh_generic_client_cb_param_t *param);
