@@ -12,7 +12,7 @@ Generic multi-node support (experimental). Verified on a real network with an IS
 - `GET /steinel/nodes` lists the stored nodes; `GET /api/nodes` adds live state (on/off, brightness, automatic mode, sensor readings).
 - `POST /api/nodes/<address>` with `on`, `brightness` (0-100), `auto` and `threshold` (twilight threshold, 1-1500 lx) controls a lamp.
 - New Home Assistant integration `steinel_mesh` (maintained in [HomeAssistant-Steinel-Mesh](https://github.com/CFenner/HomeAssistant-Steinel-Mesh)) creates lights, automatic-mode switches, illuminance and presence sensors for every node.
-- The ESPHome gateway device no longer publishes the primary device's light entities (light output, illuminance, twilight threshold, mode) to Home Assistant; the integration covers every device. Set `main_light_internal: "false"` to publish them again.
+- The ESPHome gateway device no longer publishes the primary device's light entities (light output, illuminance, twilight threshold, mode) to Home Assistant; the integration covers every device. The old NightmatIQ-only polling of the primary device stops while they are hidden, since the node engine polls every device; `main_light_internal: "false"` publishes them again and restores it.
 - Bluetooth Mesh limits raised (12 nodes, replay protection list of 16) and a Light Lightness client added.
 
 ## 1.1.1 — 2026-08-27

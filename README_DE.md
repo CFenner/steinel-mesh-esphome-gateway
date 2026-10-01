@@ -88,7 +88,7 @@ Die standardmäßige ESPHome-API veröffentlicht:
 - Hersteller, Company ID und Product ID;
 - eine Aktion zur manuellen Aktualisierung.
 
-Die Licht-Entitäten des primären Geräts (tatsächlicher Lichtausgang, Beleuchtungsstärke, Betriebsart und Dämmerungsschwelle) sind in Home Assistant standardmäßig ausgeblendet, weil die Home-Assistant-Integration [HomeAssistant-Steinel-Mesh](https://github.com/CFenner/HomeAssistant-Steinel-Mesh) alle Geräte steuert, auch dieses. Um sie wieder zu veröffentlichen, setzen Sie `main_light_internal: "false"` in den Substitutions von `esphome/nightmatiq-c3.yaml` und bauen Sie neu.
+Die Licht-Entitäten des primären Geräts (tatsächlicher Lichtausgang, Beleuchtungsstärke, Betriebsart und Dämmerungsschwelle) sind in Home Assistant standardmäßig ausgeblendet, weil die Home-Assistant-Integration [HomeAssistant-Steinel-Mesh](https://github.com/CFenner/HomeAssistant-Steinel-Mesh) alle Geräte steuert, auch dieses. Solange sie ausgeblendet sind, verzichtet das Gateway auch auf die alte, nur für NightmatIQ gedachte Abfrage: Das primäre Gerät wird von derselben Engine abgefragt wie alle anderen Geräte. Um sie wieder zu veröffentlichen (damit kehrt auch diese Abfrage zurück), setzen Sie `main_light_internal: "false"` in den Substitutions von `esphome/nightmatiq-c3.yaml` und bauen Sie neu.
 
 Home Assistant zeigt alle Entitäten unter einem Gerät namens **Steinel NightmatIQ Plus** an.
 

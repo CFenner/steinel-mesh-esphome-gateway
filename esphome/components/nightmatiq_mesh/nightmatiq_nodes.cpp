@@ -244,9 +244,19 @@ bool NightmatiqMesh::send_node_request_(const NodeRequest &request) {
 }
 
 void NightmatiqMesh::node_request_failed_() {
+  // The IV-index and address-recovery checks count unanswered requests.
+  this->mesh_timeouts_.fetch_add(1);
   if (!this->node_inflight_valid_ || this->node_inflight_.node >= this->node_runtime_.size()) return;
   std::lock_guard<std::mutex> lock(this->node_mutex_);
   this->node_runtime_[this->node_inflight_.node].consecutive_failures++;
+}
+
+// An authenticated response proves the keys and the IV index are usable and
+// feeds the signal-strength entity. The per-model counters of the old poll are
+// left alone: its retry logic compares them.
+void NightmatiqMesh::note_node_response_(const esp_ble_mesh_msg_ctx_t &context) {
+  this->mesh_rx_messages_.fetch_add(1);
+  this->record_mesh_rssi_(context);
 }
 
 bool NightmatiqMesh::queue_node_command_(const NodeRequest &request) {
@@ -393,6 +403,7 @@ void NightmatiqMesh::handle_node_generic_(esp_ble_mesh_generic_client_cb_event_t
     this->complete_access_operation_(opcode, false);
     return;
   }
+  this->note_node_response_(param->params->ctx);
   {
     std::lock_guard<std::mutex> lock(this->node_mutex_);
     NodeRuntime &state = this->node_runtime_[this->node_inflight_.node];
@@ -435,6 +446,7 @@ void NightmatiqMesh::handle_node_light_(esp_ble_mesh_light_client_cb_event_t eve
       return;
     }
   }
+  this->note_node_response_(param->params->ctx);
   {
     std::lock_guard<std::mutex> lock(this->node_mutex_);
     NodeRuntime &state = this->node_runtime_[this->node_inflight_.node];
@@ -465,6 +477,7 @@ void NightmatiqMesh::handle_node_sensor_(esp_ble_mesh_sensor_client_cb_event_t e
     return;
   }
 
+  this->note_node_response_(param->params->ctx);
   {
     std::lock_guard<std::mutex> lock(this->node_mutex_);
     NodeRuntime &state = this->node_runtime_[this->node_inflight_.node];

@@ -88,7 +88,7 @@ The standard ESPHome API publishes:
 - manufacturer, Company ID and Product ID;
 - a manual refresh action.
 
-The primary device's light entities (actual light output, illuminance, operating mode and twilight threshold) are hidden from Home Assistant by default, because the Home Assistant integration [HomeAssistant-Steinel-Mesh](https://github.com/CFenner/HomeAssistant-Steinel-Mesh) controls every device, including that one. To publish them again, set `main_light_internal: "false"` in the substitutions of `esphome/nightmatiq-c3.yaml` and rebuild.
+The primary device's light entities (actual light output, illuminance, operating mode and twilight threshold) are hidden from Home Assistant by default, because the Home Assistant integration [HomeAssistant-Steinel-Mesh](https://github.com/CFenner/HomeAssistant-Steinel-Mesh) controls every device, including that one. While they are hidden, the gateway also skips its old NightmatIQ-only polling: the primary device is polled by the same engine as every other device. To publish them again (which also restores that polling), set `main_light_internal: "false"` in the substitutions of `esphome/nightmatiq-c3.yaml` and rebuild.
 
 Home Assistant displays all published entities under one device named **Steinel NightmatIQ Plus**.
 

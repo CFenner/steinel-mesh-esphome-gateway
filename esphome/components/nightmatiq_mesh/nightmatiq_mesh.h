@@ -371,6 +371,10 @@ class NightmatiqMesh final : public PollingComponent, public AsyncWebHandler {
   void handle_node_sensor_(esp_ble_mesh_sensor_client_cb_event_t event,
                            esp_ble_mesh_sensor_client_cb_param_t *param);
   void node_request_failed_();
+  void note_node_response_(const esp_ble_mesh_msg_ctx_t &context);
+  // True while any of the primary device's light entities is published to Home
+  // Assistant. Only then is the old NightmatIQ-only poll still needed.
+  bool main_light_entities_published_() const;
   void handle_api_node_(AsyncWebServerRequest *request);
   static esp_ble_mesh_model_t *onoff_model_();
   static esp_ble_mesh_model_t *sensor_model_();

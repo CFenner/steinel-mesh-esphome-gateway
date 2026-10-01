@@ -2078,7 +2078,18 @@ void NightmatiqMesh::publish_pending_() {
   }
 }
 
+bool NightmatiqMesh::main_light_entities_published_() const {
+  const auto published = [](const EntityBase *entity) { return entity != nullptr && !entity->is_internal(); };
+  return published(this->lux_sensor_) || published(this->threshold_number_) || published(this->mode_select_) ||
+         published(this->actual_output_binary_sensor_);
+}
+
 void NightmatiqMesh::update() {
+  // The old NightmatIQ-only poll only feeds the primary device's light entities.
+  // While they are hidden from Home Assistant nothing reads it, and the node
+  // engine already polls the primary device together with every other device.
+  if (!this->main_light_entities_published_())
+    return;
   if (!this->mesh_ready_.load() || this->poll_stage_ != 0 ||
       this->control_kind_ != ControlKind::NONE || this->control_request_pending_())
     return;
@@ -2113,6 +2124,13 @@ void NightmatiqMesh::request_refresh() {
     this->composition_query_failures_.store(0);
     this->composition_query_at_.store(millis());
     this->composition_query_pending_.store(true);
+  }
+  if (!this->main_light_entities_published_()) {
+    // Let the node engine read every device again right away.
+    this->node_poll_plan_.clear();
+    this->node_poll_pos_ = 0;
+    this->node_next_pass_at_ = millis();
+    return;
   }
   this->poll_sensor_rx_start_ = this->mesh_sensor_rx_.load();
   this->poll_generic_rx_start_ = this->mesh_generic_rx_.load();
