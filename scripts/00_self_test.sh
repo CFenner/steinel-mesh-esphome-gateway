@@ -50,8 +50,8 @@ for path in \
 done
 
 for marker in \
-  'project_version: "1.1.1"' \
-  '## 1.1.1'; do
+  'project_version: "0.1.0"' \
+  '## Unreleased'; do
   if grep -Fq "$marker" "$CONFIG" "$ROOT_DIR/CHANGELOG.md"; then
     ok "release marker: $marker"
   else
