@@ -1416,7 +1416,7 @@ bool NightmatiqMesh::canHandle(AsyncWebServerRequest *request) const {
   char url_buffer[AsyncWebServerRequest::URL_BUF_SIZE];
   const StringRef url = request->url_to(url_buffer);
   if (request->method() == HTTP_GET)
-    return url == "/" || url == "/steinel" || url == "/steinel/status" || url == "/steinel/nodes" ||
+    return url == "/" || url == "/steinel" || url == "/steinel/status" ||
            url == "/api/nodes";
   if (request->method() == HTTP_POST && url.find("/api/nodes/") == 0) return true;
   return request->method() == HTTP_POST &&
@@ -1433,8 +1433,7 @@ void NightmatiqMesh::handleRequest(AsyncWebServerRequest *request) {
   const StringRef url = request->url_to(url_buffer);
   if (url == "/" || url == "/steinel") return this->handle_index_(request);
   if (url == "/steinel/status") return this->handle_status_(request);
-  if (url == "/steinel/nodes") return this->handle_nodes_(request);
-  if (url == "/api/nodes") return this->handle_nodes_(request, true);
+  if (url == "/api/nodes") return this->handle_nodes_(request);
   if (url.find("/api/nodes/") == 0) return this->handle_api_node_(request);
   if (url == "/steinel/import") return this->handle_import_(request);
   if (url == "/steinel/enable") return this->handle_enable_(request);
@@ -1546,7 +1545,7 @@ void NightmatiqMesh::handle_status_(AsyncWebServerRequest *request) {
     ESP_LOGW(WEB_TAG, "Could not send the status response");
 }
 
-void NightmatiqMesh::handle_nodes_(AsyncWebServerRequest *request, bool with_state) {
+void NightmatiqMesh::handle_nodes_(AsyncWebServerRequest *request) {
   httpd_req_t *raw_request = static_cast<httpd_req_t *>(*request);
   httpd_resp_set_status(raw_request, HTTPD_200);
   httpd_resp_set_type(raw_request, "application/json; charset=utf-8");
@@ -1633,80 +1632,78 @@ void NightmatiqMesh::handle_nodes_(AsyncWebServerRequest *request, bool with_sta
       body.append("]");
     }
     body.append("]");
-    if (with_state) {
-      // Copy under the lock and write after releasing it: a slow HTTP client
-      // must never block the Bluetooth callbacks that update this state.
-      NodeRuntime runtime;
-      {
-        std::lock_guard<std::mutex> node_lock(this->node_mutex_);
-        runtime = this->node_runtime_[index];
-      }
-      const uint32_t now = millis();
-      const bool reachable = runtime.responded && static_cast<uint32_t>(now - runtime.last_response_at) < 90000UL;
-      body.append(",\"state\":{\"reachable\":");
-      body.append(reachable ? "true" : "false");
-      body.number(",\"age_seconds\":", runtime.responded ? (now - runtime.last_response_at) / 1000UL : 0);
-      body.append(",\"on\":");
-      body.append(runtime.onoff < 0 ? "null" : runtime.onoff ? "true" : "false");
-      body.append(",\"brightness\":");
-      if (runtime.lightness < 0) {
-        body.append("null");
-      } else {
-        body.number("", static_cast<uint32_t>(std::lround(runtime.lightness * 100.0 / 65535.0)));
-      }
-      body.append(",\"auto\":");
-      body.append(runtime.lc_mode < 0 ? "null" : runtime.lc_mode ? "true" : "false");
-      body.append(",\"threshold\":");
-      if (runtime.threshold_centilux < 0)
-        body.append("null");
-      else
-        body.number("", static_cast<uint32_t>(std::lround(runtime.threshold_centilux / 100.0)));
-      // Steinel packs the firmware version into the composition version ID. The
-      // text is built as std::string: a fixed buffer that is too small would cut
-      // the JSON off and break every client of this endpoint.
-      body.append(",\"version_id\":");
-      if (runtime.version_id == 0) {
-        body.append("null,\"firmware_version\":null");
-      } else {
-        const uint16_t version_id = runtime.version_id;
-        char id_text[8];  // "0x" + 4 hex digits + NUL
-        std::snprintf(id_text, sizeof(id_text), "0x%04X", static_cast<unsigned>(version_id));
-        body.append("\"");
-        body.append(id_text);
-        body.append("\",\"firmware_version\":\"");
-        body.append(std::to_string(version_id >> 11) + "." + std::to_string((version_id >> 6) & 0x1F) + "." +
-                    std::to_string(version_id & 0x3F));
-        body.append("\"");
-      }
-      body.number(",\"failures\":", runtime.consecutive_failures);
-      body.append(",\"sensors\":[");
-      for (uint8_t sensor_index = 0; sensor_index < runtime.sensor_count; sensor_index++) {
-        const NodeSensorValue &value = runtime.sensors[sensor_index];
-        char text[40];
-        if (sensor_index != 0) body.append(",");
-        body.number("{\"element\":", value.element);
-        std::snprintf(text, sizeof(text), ",\"property\":\"0x%04X\",\"raw\":\"", value.property);
-        body.append(text);
-        for (uint8_t byte = 0; byte < value.length; byte++) {
-          std::snprintf(text, sizeof(text), "%02X", value.raw[byte]);
-          body.append(text);
-        }
-        body.append("\"");
-        // Decoded conveniences for the standard properties. Anything else is
-        // still reported through the raw bytes above.
-        if (value.property == 0x004E && value.length >= 3) {
-          const uint32_t centilux = value.raw[0] | (value.raw[1] << 8) | (value.raw[2] << 16);
-          std::snprintf(text, sizeof(text), ",\"lux\":%.2f", centilux / 100.0);
-          body.append(text);
-        } else if (value.property == 0x004D && value.length >= 1) {
-          body.append(value.raw[0] != 0 ? ",\"presence\":true" : ",\"presence\":false");
-        } else if (value.property == 0x0042 && value.length >= 1) {
-          body.append(value.raw[0] != 0 && value.raw[0] != 0xFF ? ",\"motion\":true" : ",\"motion\":false");
-        }
-        body.append("}");
-      }
-      body.append("]}");
+    // Copy under the lock and write after releasing it: a slow HTTP client
+    // must never block the Bluetooth callbacks that update this state.
+    NodeRuntime runtime;
+    {
+      std::lock_guard<std::mutex> node_lock(this->node_mutex_);
+      runtime = this->node_runtime_[index];
     }
+    const uint32_t now = millis();
+    const bool reachable = runtime.responded && static_cast<uint32_t>(now - runtime.last_response_at) < 90000UL;
+    body.append(",\"state\":{\"reachable\":");
+    body.append(reachable ? "true" : "false");
+    body.number(",\"age_seconds\":", runtime.responded ? (now - runtime.last_response_at) / 1000UL : 0);
+    body.append(",\"on\":");
+    body.append(runtime.onoff < 0 ? "null" : runtime.onoff ? "true" : "false");
+    body.append(",\"brightness\":");
+    if (runtime.lightness < 0) {
+      body.append("null");
+    } else {
+      body.number("", static_cast<uint32_t>(std::lround(runtime.lightness * 100.0 / 65535.0)));
+    }
+    body.append(",\"auto\":");
+    body.append(runtime.lc_mode < 0 ? "null" : runtime.lc_mode ? "true" : "false");
+    body.append(",\"threshold\":");
+    if (runtime.threshold_centilux < 0)
+      body.append("null");
+    else
+      body.number("", static_cast<uint32_t>(std::lround(runtime.threshold_centilux / 100.0)));
+    // Steinel packs the firmware version into the composition version ID. The
+    // text is built as std::string: a fixed buffer that is too small would cut
+    // the JSON off and break every client of this endpoint.
+    body.append(",\"version_id\":");
+    if (runtime.version_id == 0) {
+      body.append("null,\"firmware_version\":null");
+    } else {
+      const uint16_t version_id = runtime.version_id;
+      char id_text[8];  // "0x" + 4 hex digits + NUL
+      std::snprintf(id_text, sizeof(id_text), "0x%04X", static_cast<unsigned>(version_id));
+      body.append("\"");
+      body.append(id_text);
+      body.append("\",\"firmware_version\":\"");
+      body.append(std::to_string(version_id >> 11) + "." + std::to_string((version_id >> 6) & 0x1F) + "." +
+                  std::to_string(version_id & 0x3F));
+      body.append("\"");
+    }
+    body.number(",\"failures\":", runtime.consecutive_failures);
+    body.append(",\"sensors\":[");
+    for (uint8_t sensor_index = 0; sensor_index < runtime.sensor_count; sensor_index++) {
+      const NodeSensorValue &value = runtime.sensors[sensor_index];
+      char text[40];
+      if (sensor_index != 0) body.append(",");
+      body.number("{\"element\":", value.element);
+      std::snprintf(text, sizeof(text), ",\"property\":\"0x%04X\",\"raw\":\"", value.property);
+      body.append(text);
+      for (uint8_t byte = 0; byte < value.length; byte++) {
+        std::snprintf(text, sizeof(text), "%02X", value.raw[byte]);
+        body.append(text);
+      }
+      body.append("\"");
+      // Decoded conveniences for the standard properties. Anything else is
+      // still reported through the raw bytes above.
+      if (value.property == 0x004E && value.length >= 3) {
+        const uint32_t centilux = value.raw[0] | (value.raw[1] << 8) | (value.raw[2] << 16);
+        std::snprintf(text, sizeof(text), ",\"lux\":%.2f", centilux / 100.0);
+        body.append(text);
+      } else if (value.property == 0x004D && value.length >= 1) {
+        body.append(value.raw[0] != 0 ? ",\"presence\":true" : ",\"presence\":false");
+      } else if (value.property == 0x0042 && value.length >= 1) {
+        body.append(value.raw[0] != 0 && value.raw[0] != 0xFF ? ",\"motion\":true" : ",\"motion\":false");
+      }
+      body.append("}");
+    }
+    body.append("]}");
     body.append("}");
   }
   body.append("]}");

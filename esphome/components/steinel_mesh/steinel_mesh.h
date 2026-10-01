@@ -337,7 +337,7 @@ class NightmatiqMesh final : public Component, public AsyncWebHandler {
   static const char *product_name_(uint16_t company_id, uint16_t product_id);
   static const char *manufacturer_name_(uint16_t company_id);
   bool install_backup_(BackupBody &body, uint32_t iv_index, uint16_t node_address, std::string &error);
-  void handle_nodes_(AsyncWebServerRequest *request, bool with_state = false);
+  void handle_nodes_(AsyncWebServerRequest *request);
   void handle_import_(AsyncWebServerRequest *request);
   bool load_config_();
   bool load_device_key_();
