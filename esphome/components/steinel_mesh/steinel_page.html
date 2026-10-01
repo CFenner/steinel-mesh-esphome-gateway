@@ -78,13 +78,13 @@ const luxText=v=>v>=1000?`${(v/1000).toFixed(1)} klx`:`${Math.round(v)} lx`;
 async function nodeCommand(address,params){try{await post(`/api/nodes/${address}`,new URLSearchParams(params));setTimeout(loadNodes,3500)}catch(e){message.textContent=e.message;dot.className='dot bad'}}
 function buildNodeCard(n){
   const el=document.createElement('div');el.className='node';
-  el.innerHTML='<div class="node-head"><i class="dot"></i><div><b class="n-name"></b><div class="node-sub n-sub"></div><div class="node-sub n-ids"></div></div></div><div class="node-row n-light"><button class="n-toggle">—</button><input class="n-level" type="range" min="0" max="100" step="5" value="0" aria-label="Brightness"><b class="n-levelv">—</b></div><label class="node-auto n-lc"><input class="n-auto" type="checkbox"> Automatic mode</label><label class="node-thr n-thr">Twilight threshold <input class="n-thrv" type="number" min="1" max="1500" step="1" inputmode="numeric" aria-label="Twilight threshold in lux"><span>lx</span></label><label class="node-thr n-run">On-time after motion <input class="n-runv" type="number" min="10" max="3600" step="1" inputmode="numeric" aria-label="On-time after motion in seconds"><span>s</span></label><div class="chips n-sensors"></div>';
+  el.innerHTML='<div class="node-head"><i class="dot"></i><div><b class="n-name"></b><div class="node-sub n-sub"></div><div class="node-sub n-ids"></div></div></div><div class="node-row n-light"><button class="n-toggle">—</button><input class="n-level" type="range" min="0" max="100" step="5" value="0" aria-label="Brightness"><b class="n-levelv">—</b></div><label class="node-auto n-lc"><input class="n-auto" type="checkbox"> Automatic mode</label><label class="node-thr n-thr">Twilight threshold <input class="n-thrv" type="number" min="1" max="1500" step="1" inputmode="numeric" aria-label="Twilight threshold in lux"><span>lx</span></label><label class="node-thr n-reg">Regular time <input class="n-regv" type="number" min="5" max="3600" step="1" inputmode="numeric" aria-label="Regular time in seconds"><span>s</span></label><div class="chips n-sensors"></div>';
   const a=n.address;
   el.querySelector('.n-toggle').onclick=()=>nodeCommand(a,{on:el.dataset.on==='1'?'0':'1'});
   el.querySelector('.n-level').onchange=e=>nodeCommand(a,{brightness:e.target.value});
   el.querySelector('.n-level').oninput=e=>{el.querySelector('.n-levelv').textContent=`${e.target.value}%`};
   el.querySelector('.n-auto').onchange=e=>nodeCommand(a,{auto:e.target.checked?'1':'0'});
-  el.querySelector('.n-runv').onchange=e=>{const v=Math.round(Number(e.target.value));if(!(v>=10&&v<=3600)){message.textContent='On-time must be 10-3600 s';dot.className='dot bad';return}e.target.value=v;nodeCommand(a,{run_on:String(v)})};
+  el.querySelector('.n-regv').onchange=e=>{const v=Math.round(Number(e.target.value));if(!(v>=5&&v<=3600)){message.textContent='Regular time must be 5-3600 s';dot.className='dot bad';return}e.target.value=v;nodeCommand(a,{regular_time:String(v)})};
   el.querySelector('.n-thrv').onchange=e=>{const v=Math.round(Number(e.target.value));if(!(v>=1&&v<=1500)){message.textContent='Twilight threshold must be 1-1500 lx';dot.className='dot bad';return}e.target.value=v;nodeCommand(a,{threshold:String(v)})};
   return el;
 }
@@ -104,10 +104,10 @@ function updateNodeCard(el,n){
   if(document.activeElement!==level&&st.brightness!=null){level.value=st.brightness;el.querySelector('.n-levelv').textContent=`${st.brightness}%`}
   if(document.activeElement!==auto&&st.auto!=null)auto.checked=!!st.auto;
   if(document.activeElement!==thr)thr.value=st.threshold!=null?st.threshold:'';
-  const run=el.querySelector('.n-runv');
-  el.querySelector('.n-run').classList.toggle('hidden',st.run_on==null);
-  if(document.activeElement!==run)run.value=st.run_on!=null?st.run_on:'';
-  [toggle,level,auto,thr,run].forEach(c=>c.disabled=!online);
+  const reg=el.querySelector('.n-regv');
+  el.querySelector('.n-reg').classList.toggle('hidden',st.regular_time==null);
+  if(document.activeElement!==reg)reg.value=st.regular_time!=null?st.regular_time:'';
+  [toggle,level,auto,thr,reg].forEach(c=>c.disabled=!online);
   const chips=[];
   (st.sensors||[]).forEach(v=>{
     if(v.motion!==undefined)chips.push([v.motion?'Motion':'No motion',v.motion]);
