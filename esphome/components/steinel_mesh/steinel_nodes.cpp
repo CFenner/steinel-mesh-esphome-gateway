@@ -42,15 +42,16 @@ static constexpr uint8_t NODE_TTL = 7;
 // answered the plain Sensor Get. Tried a limited number of times per device.
 static constexpr uint16_t PROPERTY_AMBIENT_LIGHT_LEVEL = 0x004E;
 static constexpr uint8_t NODE_SENSOR_PROBE_MAX_ATTEMPTS = 5;
-// Light Control "Time Run On", which is Steinel's "regular time" (the app's main
-// light time): how long the light stays on after the last motion.
+// Light Control "Time Run On", shown as "Run time" (the Steinel app calls it
+// "regular time" and the main light time): how long the light stays on after
+// the last motion.
 // It is a 24-bit time in milliseconds; 0xFFFFFF means "unknown".
 static constexpr uint16_t LC_TIME_RUN_ON_PROPERTY = 0x003C;
 // The read is repeated for a device that has not answered yet: the first few
 // passes every time, then only now and then, so a device that never answers
 // does not cost traffic forever.
-static constexpr uint8_t NODE_REGULAR_TIME_QUICK_ATTEMPTS = 6;
-static constexpr uint8_t NODE_REGULAR_TIME_SLOW_EVERY = 10;
+static constexpr uint8_t NODE_RUN_TIME_QUICK_ATTEMPTS = 6;
+static constexpr uint8_t NODE_RUN_TIME_SLOW_EVERY = 10;
 
 namespace {
 
@@ -122,17 +123,17 @@ void NightmatiqMesh::build_node_poll_plan_(int only_node) {
       if ((node.element_caps[element] & CAP_SENSOR) != 0)
         plan.push_back({NodeRequestKind::SENSOR_GET, index, static_cast<uint8_t>(element), 0, false});
     if (lc >= 0) {
-      // Read the regular time while it is unknown, and again after a command to
+      // Read the run time while it is unknown, and again after a command to
       // this node so a change is confirmed.
       std::lock_guard<std::mutex> lock(this->node_mutex_);
       NodeRuntime &state = this->node_runtime_[index];
       bool ask = !probe;
-      if (probe && state.regular_time_ms < 0) {
-        state.regular_time_attempts++;
-        ask = state.regular_time_attempts <= NODE_REGULAR_TIME_QUICK_ATTEMPTS ||
-              state.regular_time_attempts % NODE_REGULAR_TIME_SLOW_EVERY == 0;
+      if (probe && state.run_time_ms < 0) {
+        state.run_time_attempts++;
+        ask = state.run_time_attempts <= NODE_RUN_TIME_QUICK_ATTEMPTS ||
+              state.run_time_attempts % NODE_RUN_TIME_SLOW_EVERY == 0;
       }
-      if (ask) plan.push_back({NodeRequestKind::REGULAR_TIME_GET, index, static_cast<uint8_t>(lc), 0, false});
+      if (ask) plan.push_back({NodeRequestKind::RUN_TIME_GET, index, static_cast<uint8_t>(lc), 0, false});
     }
     if (probe) {
       // A sensor element that has never produced a reading may need to be asked for
@@ -322,7 +323,7 @@ bool NightmatiqMesh::send_node_request_(const NodeRequest &request) {
                                               ESP_BLE_MESH_MODEL_OP_LIGHT_LC_PROPERTY_GET,
                                               esp_ble_mesh_light_client_get_state(&common, &get));
     }
-    case NodeRequestKind::REGULAR_TIME_GET: {
+    case NodeRequestKind::RUN_TIME_GET: {
       esp_ble_mesh_light_client_get_state_t get{};
       if (!this->set_common_(common, light_lc_model_(), ESP_BLE_MESH_MODEL_OP_LIGHT_LC_PROPERTY_GET, destination))
         break;
@@ -334,7 +335,7 @@ bool NightmatiqMesh::send_node_request_(const NodeRequest &request) {
                                               ESP_BLE_MESH_MODEL_OP_LIGHT_LC_PROPERTY_GET,
                                               esp_ble_mesh_light_client_get_state(&common, &get));
     }
-    case NodeRequestKind::REGULAR_TIME_SET: {
+    case NodeRequestKind::RUN_TIME_SET: {
       esp_ble_mesh_light_client_set_state_t set{};
       if (!this->set_common_(common, light_lc_model_(), ESP_BLE_MESH_MODEL_OP_LIGHT_LC_PROPERTY_SET, destination))
         break;
@@ -416,7 +417,7 @@ bool NightmatiqMesh::queue_node_command_(const NodeRequest &request) {
 }
 
 bool NightmatiqMesh::submit_node_command_(uint8_t node_index, int on, int brightness_percent, int auto_mode,
-                                          int threshold_lux, int regular_time_seconds, std::string &error) {
+                                          int threshold_lux, int run_time_seconds, std::string &error) {
   if (!this->node_table_valid_ || node_index >= this->node_table_.count) {
     error = "Unknown node";
     return false;
@@ -425,8 +426,8 @@ bool NightmatiqMesh::submit_node_command_(uint8_t node_index, int on, int bright
   const int light = light_element(node.element_caps, node.element_count, CAP_LIGHTNESS, CAP_ONOFF);
   const int lc = first_element_with(node.element_caps, node.element_count, CAP_LC);
   const bool manual = on >= 0 || brightness_percent >= 0;
-  if (!manual && auto_mode < 0 && threshold_lux < 0 && regular_time_seconds < 0) {
-    error = "Nothing to do; provide on, brightness, auto, threshold or regular_time";
+  if (!manual && auto_mode < 0 && threshold_lux < 0 && run_time_seconds < 0) {
+    error = "Nothing to do; provide on, brightness, auto, threshold or run_time";
     return false;
   }
   if (manual && light < 0) {
@@ -441,8 +442,8 @@ bool NightmatiqMesh::submit_node_command_(uint8_t node_index, int on, int bright
     error = "This node has no twilight threshold";
     return false;
   }
-  if (regular_time_seconds >= 0 && lc < 0) {
-    error = "This node has no regular time";
+  if (run_time_seconds >= 0 && lc < 0) {
+    error = "This node has no run time";
     return false;
   }
   if (auto_mode == 1 && manual) {
@@ -454,9 +455,9 @@ bool NightmatiqMesh::submit_node_command_(uint8_t node_index, int on, int bright
   if (threshold_lux >= 0)
     list.push_back({NodeRequestKind::THRESHOLD_SET, node_index, static_cast<uint8_t>(lc),
                     static_cast<uint16_t>(threshold_lux), false});
-  if (regular_time_seconds >= 0)
-    list.push_back({NodeRequestKind::REGULAR_TIME_SET, node_index, static_cast<uint8_t>(lc),
-                    static_cast<uint16_t>(regular_time_seconds), false});
+  if (run_time_seconds >= 0)
+    list.push_back({NodeRequestKind::RUN_TIME_SET, node_index, static_cast<uint8_t>(lc),
+                    static_cast<uint16_t>(run_time_seconds), false});
   if (auto_mode >= 0) {
     // Sent twice: unacknowledged messages can be lost, and the lamp ignores
     // the duplicate.
@@ -564,9 +565,9 @@ void NightmatiqMesh::handle_node_light_(esp_ble_mesh_light_client_cb_event_t eve
   const bool lc_mode = received == ESP_BLE_MESH_MODEL_OP_LIGHT_LC_MODE_STATUS;
   const bool property = received == ESP_BLE_MESH_MODEL_OP_LIGHT_LC_PROPERTY_STATUS;
   if (this->node_inflight_valid_ && this->node_inflight_.node < this->node_runtime_.size() &&
-      (this->node_inflight_.kind == NodeRequestKind::REGULAR_TIME_GET ||
-       this->node_inflight_.kind == NodeRequestKind::REGULAR_TIME_SET)) {
-    const bool is_read = this->node_inflight_.kind == NodeRequestKind::REGULAR_TIME_GET;
+      (this->node_inflight_.kind == NodeRequestKind::RUN_TIME_GET ||
+       this->node_inflight_.kind == NodeRequestKind::RUN_TIME_SET)) {
+    const bool is_read = this->node_inflight_.kind == NodeRequestKind::RUN_TIME_GET;
     const auto &status = param->status_cb.lc_property_status;
     const bool valid = event != ESP_BLE_MESH_LIGHT_CLIENT_TIMEOUT_EVT && param->error_code == 0 && property &&
                        status.property_id == LC_TIME_RUN_ON_PROPERTY && status.property_value != nullptr &&
@@ -588,10 +589,10 @@ void NightmatiqMesh::handle_node_light_(esp_ble_mesh_light_client_cb_event_t eve
     {
       std::lock_guard<std::mutex> lock(this->node_mutex_);
       NodeRuntime &state = this->node_runtime_[this->node_inflight_.node];
-      if (state.regular_time_ms < 0)
-        ESP_LOGI(NODE_TAG, "Node '%s': regular time %u s", this->node_table_.nodes[this->node_inflight_.node].name,
+      if (state.run_time_ms < 0)
+        ESP_LOGI(NODE_TAG, "Node '%s': run time %u s", this->node_table_.nodes[this->node_inflight_.node].name,
                  static_cast<unsigned>(milliseconds / 1000U));
-      state.regular_time_ms = static_cast<int32_t>(milliseconds);
+      state.run_time_ms = static_cast<int32_t>(milliseconds);
       state.responded = true;
       state.last_response_at = millis();
       state.consecutive_failures = 0;
@@ -856,12 +857,12 @@ void NightmatiqMesh::handle_api_node_(AsyncWebServerRequest *request) {
   int auto_mode = -1;
   int brightness = -1;
   int threshold = -1;
-  int regular_time = -1;
+  int run_time = -1;
   const std::string on_arg = request->arg("on");
   const std::string auto_arg = request->arg("auto");
   const std::string brightness_arg = request->arg("brightness");
   const std::string threshold_arg = request->arg("threshold");
-  const std::string regular_time_arg = request->arg("regular_time");
+  const std::string run_time_arg = request->arg("run_time");
   if (!on_arg.empty() && !parse_switch(on_arg, on))
     return send_json_(request, 400, "{\"message\":\"on must be 0/1, true/false or on/off\"}");
   if (!auto_arg.empty() && !parse_switch(auto_arg, auto_mode))
@@ -878,15 +879,15 @@ void NightmatiqMesh::handle_api_node_(AsyncWebServerRequest *request) {
       return send_json_(request, 400, "{\"message\":\"threshold must be 1-1500 (lux)\"}");
     threshold = static_cast<int>(parsed);
   }
-  if (!regular_time_arg.empty()) {
+  if (!run_time_arg.empty()) {
     uint32_t parsed = 0;
-    if (!parse_u32_(regular_time_arg, 5, 3600, parsed))
-      return send_json_(request, 400, "{\"message\":\"regular_time must be 5-3600 (seconds)\"}");
-    regular_time = static_cast<int>(parsed);
+    if (!parse_u32_(run_time_arg, 5, 3600, parsed))
+      return send_json_(request, 400, "{\"message\":\"run_time must be 5-3600 (seconds)\"}");
+    run_time = static_cast<int>(parsed);
   }
 
   std::string error;
-  if (!this->submit_node_command_(index, on, brightness, auto_mode, threshold, regular_time, error)) {
+  if (!this->submit_node_command_(index, on, brightness, auto_mode, threshold, run_time, error)) {
     std::string escaped;
     for (char c : error)
       if (c != '"' && c != '\\' && static_cast<unsigned char>(c) >= 0x20) escaped += c;

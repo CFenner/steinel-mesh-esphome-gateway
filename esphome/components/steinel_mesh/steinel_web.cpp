@@ -1688,11 +1688,11 @@ void NightmatiqMesh::handle_nodes_(AsyncWebServerRequest *request) {
       body.append("null");
     else
       body.number("", static_cast<uint32_t>(std::lround(runtime.threshold_centilux / 100.0)));
-    body.append(",\"regular_time\":");
-    if (runtime.regular_time_ms < 0)
+    body.append(",\"run_time\":");
+    if (runtime.run_time_ms < 0)
       body.append("null");
     else
-      body.number("", static_cast<uint32_t>(std::lround(runtime.regular_time_ms / 1000.0)));
+      body.number("", static_cast<uint32_t>(std::lround(runtime.run_time_ms / 1000.0)));
     // Steinel packs the firmware version into the composition version ID. The
     // text is built as std::string: a fixed buffer that is too small would cut
     // the JSON off and break every client of this endpoint.
