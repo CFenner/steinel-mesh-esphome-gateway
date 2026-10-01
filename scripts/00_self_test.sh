@@ -40,12 +40,9 @@ for path in \
   "$ROOT_DIR/esphome/components/nightmatiq_mesh/nightmatiq_page.html" \
   "$ROOT_DIR/esphome/components/nightmatiq_mesh/nightmatiq_page.h" \
   "$ROOT_DIR/scripts/10_prepare_release.sh" \
-  "$ROOT_DIR/home-assistant/steinel-nightmatiq-package.yaml" \
-  "$ROOT_DIR/home-assistant/steinel-nightmatiq-popup.js" \
   "$ROOT_DIR/docs/images/esp32-c3-super-mini.jpg" \
   "$ROOT_DIR/docs/images/nightmatiq-web-interface.png" \
-  "$ROOT_DIR/docs/images/home-assistant-device.png" \
-  "$ROOT_DIR/docs/images/home-assistant-control.png"; do
+  "$ROOT_DIR/docs/images/home-assistant-device.png"; do
   if [[ -f "$path" ]]; then
     ok "required file: ${path#"$ROOT_DIR/"}"
   else

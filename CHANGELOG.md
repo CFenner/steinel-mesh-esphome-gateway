@@ -6,6 +6,7 @@ All notable changes to this project are documented in this file.
 
 Generic multi-node support (experimental). Verified on a real network with an IS 180, two L 810 SC and an L 810 C; motion detection values are still unconfirmed.
 
+- Removed the optional Home Assistant area tile and compact control dialog (`home-assistant/`); the Home Assistant integration replaces them.
 - Network setup is now a local `.json` backup import. The Steinel Cloud download and its login form were removed.
 - All controllable nodes of the backup are stored and restored, not only the NightmatIQ Plus.
 - `/api/nodes` also reports the gateway's MAC address so Home Assistant can link the mesh devices to the gateway's ESPHome device.

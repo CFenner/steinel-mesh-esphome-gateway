@@ -36,12 +36,6 @@ The standard ESPHome integration exposes NightmatIQ directly as a single Home As
 
 ![NightmatIQ device in Home Assistant](docs/images/home-assistant-device.png)
 
-### Optional Home Assistant control dialog
-
-An optional frontend module combines sensor state, illuminance, operating mode and twilight threshold in one compact dialog.
-
-![NightmatIQ control dialog in Home Assistant](docs/images/home-assistant-control.png)
-
 ## What this project provides
 
 ### Local Bluetooth Mesh integration
@@ -125,7 +119,6 @@ The firmware is designed for the ESP32-C3 and ESP-IDF. Bluetooth 5 extended feat
 | `esphome/nightmatiq-c3.yaml` | Main ESPHome firmware configuration |
 | `esphome/components/nightmatiq_mesh/` | Bluetooth Mesh, multi-device engine and local web component |
 | `scripts/` | Installation, validation, USB and OTA helpers |
-| `home-assistant/` | Optional Home Assistant package and compact control dialog |
 | `docs/images/` | Public README images |
 
 ## Ready-made installation
@@ -227,19 +220,6 @@ Home Assistant usually discovers the device automatically through ESPHome. If it
 4. Assign **Steinel NightmatIQ Plus** to the required area.
 
 All control and diagnostic entities are attached directly to that device.
-
-## 8. Optional compact Home Assistant dialog
-
-The dialog needs the primary device's light entities, which are hidden by default: set `main_light_internal: "false"` in `esphome/nightmatiq-c3.yaml` and rebuild before using it. The files in `home-assistant/` add the compact area tile and control dialog shown above.
-
-1. Copy `steinel-nightmatiq-package.yaml` to the Home Assistant packages directory.
-2. Copy `steinel-nightmatiq-popup.js` to `/config/www/`.
-3. Add `/local/steinel-nightmatiq-popup.js?v=100` as a JavaScript module in dashboard resources.
-4. Reload the package configuration and refresh the browser cache.
-
-The files use the default entity IDs created by a first installation. If Home Assistant appended `_2` or another suffix, update the four IDs at the top of the JavaScript file and the corresponding IDs in the package YAML.
-
-The module customizes the generated area tile and Home Assistant's more-info dialog. Because that area strategy is part of the Home Assistant frontend, a future frontend release may require an update to the optional module.
 
 ## Multiple gateways
 

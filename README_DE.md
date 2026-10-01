@@ -36,12 +36,6 @@ Die standardmäßige ESPHome-Integration stellt NightmatIQ als ein einzelnes Hom
 
 ![NightmatIQ-Gerät in Home Assistant](docs/images/home-assistant-device.png)
 
-### Optionaler Home-Assistant-Steuerdialog
-
-Ein optionales Frontend-Modul fasst Sensorzustand, Beleuchtungsstärke, Betriebsart und Dämmerungsschwelle in einem kompakten Dialog zusammen.
-
-![NightmatIQ-Steuerdialog in Home Assistant](docs/images/home-assistant-control.png)
-
 ## Funktionen
 
 ### Lokale Bluetooth-Mesh-Integration
@@ -181,15 +175,6 @@ bash scripts/05_upload_ota.sh DEVICE_IP_ODER_HOSTNAME
 ## Home Assistant
 
 Home Assistant erkennt das Gerät normalerweise automatisch über ESPHome. Andernfalls öffnen Sie **Settings → Devices & services**, fügen die Integration **ESPHome** hinzu und geben IP-Adresse oder Hostname des Gateways ein. Weisen Sie **Steinel NightmatIQ Plus** anschließend dem gewünschten Bereich zu.
-
-Der Dialog benötigt die Licht-Entitäten des primären Geräts, die standardmäßig ausgeblendet sind: Setzen Sie vor der Nutzung `main_light_internal: "false"` in `esphome/nightmatiq-c3.yaml` und bauen Sie neu. Die Dateien unter `home-assistant/` ergänzen optional den abgebildeten kompakten Bereichskachel- und Steuerdialog:
-
-1. Kopieren Sie `steinel-nightmatiq-package.yaml` in das Home-Assistant-Paketverzeichnis.
-2. Kopieren Sie `steinel-nightmatiq-popup.js` nach `/config/www/`.
-3. Fügen Sie `/local/steinel-nightmatiq-popup.js?v=100` als JavaScript-Modul zu den Dashboard-Ressourcen hinzu.
-4. Laden Sie die Paketkonfiguration neu und aktualisieren Sie den Browser-Cache.
-
-Falls Home Assistant an die Standard-Entitäts-IDs `_2` oder einen anderen Suffix angehängt hat, passen Sie die vier IDs am Anfang der JavaScript-Datei und die entsprechenden IDs in der Paket-YAML-Datei an. Das optionale Modul greift in die Home-Assistant-Bereichsstrategie ein und kann nach einer zukünftigen Frontend-Aktualisierung eine Anpassung benötigen.
 
 ## Mehrere Gateways
 

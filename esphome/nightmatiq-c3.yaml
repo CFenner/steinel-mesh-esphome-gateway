@@ -9,8 +9,7 @@ substitutions:
   # The primary device's light entities (light output, illuminance, twilight
   # threshold, mode) are kept inside the firmware but hidden from Home Assistant:
   # the Home Assistant integration controls every device, including that one.
-  # Set to "false" to publish them again, e.g. for the optional dialog in
-  # home-assistant/.
+  # Set to "false" to publish them again.
   main_light_internal: "true"
 
 esphome:
