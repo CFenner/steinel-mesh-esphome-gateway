@@ -1,5 +1,5 @@
 substitutions:
-  name: "nightmatiq-gateway"
+  name: "steinel-mesh-gateway"
   friendly_name: "Steinel Mesh Gateway"
   device_description: "Local Steinel Bluetooth Mesh gateway for ESP32-C3"
   project_name: "cfenner.steinel_mesh_gateway"

@@ -175,7 +175,7 @@ The same compiled image can be installed on every supported ESP32-C3 board. The 
 
 ## 4. Connect Wi-Fi
 
-1. Connect to the access point named `nightmatiq-gateway` using password `12345678`.
+1. Connect to the access point named `steinel-mesh-gateway` using password `12345678`.
 2. Select the target 2.4 GHz Wi-Fi network in the captive portal and enter its password.
 3. Wait for the gateway to restart and connect to the selected network.
 4. Open the address assigned by the router or the device hostname ending in `.local`.
@@ -222,7 +222,7 @@ All control and diagnostic entities are attached directly to that device.
 
 During network import, each gateway derives a Mesh address policy from the selected installation and its own hardware identity. The same firmware can therefore be configured for different ESP32-C3 boards and NightmatIQ installations.
 
-The device name has no MAC suffix, so every gateway uses the hostname and access-point name `nightmatiq-gateway`. When you run more than one gateway on the same network, give each its own `name` in the substitutions of `esphome/steinel-c3.yaml` before building (or add `name_add_mac_suffix: true` under `esphome:` to derive a unique name from the MAC address). Configure a unique administrator password on each gateway.
+The device name has no MAC suffix, so every gateway uses the hostname and access-point name `steinel-mesh-gateway`. When you run more than one gateway on the same network, give each its own `name` in the substitutions of `esphome/steinel-c3.yaml` before building (or add `name_add_mac_suffix: true` under `esphome:` to derive a unique name from the MAC address). Configure a unique administrator password on each gateway.
 
 ## Fallback access point
 
