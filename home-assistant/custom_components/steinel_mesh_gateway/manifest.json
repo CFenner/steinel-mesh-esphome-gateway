@@ -3,9 +3,9 @@
   "name": "Steinel Mesh Gateway",
   "codeowners": [],
   "config_flow": true,
-  "documentation": "https://github.com/supczinskib/steinel-nightmatiq-esp32-c3-gateway",
+  "documentation": "https://github.com/CFenner/steinel-mesh-esphome-gateway",
   "iot_class": "local_polling",
-  "issue_tracker": "https://github.com/supczinskib/steinel-nightmatiq-esp32-c3-gateway/issues",
+  "issue_tracker": "https://github.com/CFenner/steinel-mesh-esphome-gateway/issues",
   "requirements": [],
   "version": "0.1.0"
 }

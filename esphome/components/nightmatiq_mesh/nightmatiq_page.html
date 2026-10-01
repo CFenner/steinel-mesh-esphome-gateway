@@ -24,7 +24,7 @@
 </main>
 <script>
 const q=s=>document.querySelector(s),message=q('#message'),dot=q('#dot'),state=q('#state'),enable=q('#enable'),disable=q('#disable'),remove=q('#remove'),firmware=q('#firmware'),otaUpdate=q('#otaUpdate'),otaProgress=q('#otaProgress'),otaStatus=q('#otaStatus'),checkUpdate=q('#checkUpdate'),installAvailableUpdate=q('#installAvailableUpdate'),gatewayVersion=q('#gatewayVersion'),latestGatewayVersion=q('#latestGatewayVersion'),newPassword=q('#newPassword'),passwordConfirmation=q('#passwordConfirmation'),changePassword=q('#changePassword'),passwordInfo=q('#passwordInfo'),wifiSsid=q('#wifiSsid'),wifiPassword=q('#wifiPassword'),wifiInfo=q('#wifiInfo'),saveWifi=q('#saveWifi'),factoryReset=q('#factoryReset'),backupFile=q('#backupFile'),importBackup=q('#importBackup'),nodeList=q('#nodeList');let adminAutoOpened=false,otaBusy=false,otaTransferred=false,wifiSsidEdited=false,lastStatus=null,availableRelease=null;
-const RELEASE_API='https://api.github.com/repos/supczinskib/steinel-nightmatiq-esp32-c3-gateway/releases/latest',RELEASE_ASSET_PREFIX='steinel-nightmatiq-esp32-c3-gateway-v';
+const RELEASE_API='https://api.github.com/repos/CFenner/steinel-mesh-esphome-gateway/releases/latest',RELEASE_ASSET_PREFIX='steinel-nightmatiq-esp32-c3-gateway-v';
 const otaRestart=()=>{otaProgress.value=100;otaStatus.textContent='Upload received. The gateway is restarting and verifying the new firmware…';message.textContent='Firmware uploaded; waiting for startup verification';dot.className='dot'};
 const versionParts=value=>value.replace(/^v/,'').split('.').map(part=>Number(part));
 const compareVersions=(left,right)=>{const a=versionParts(left),b=versionParts(right);for(let i=0;i<3;i++){if(a[i]!==b[i])return a[i]>b[i]?1:-1}return 0};

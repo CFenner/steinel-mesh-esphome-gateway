@@ -45,7 +45,7 @@ static constexpr size_t AUTO_UPDATE_REQUEST_OVERHEAD_BYTES = 256;
 static constexpr uint32_t AUTO_UPDATE_STAGE_TIMEOUT_MS = 7500;
 static constexpr uint32_t AUTO_UPDATE_ERROR_REBOOT_DELAY_MS = 20000;
 static const char *const RELEASE_DOWNLOAD_PREFIX =
-    "https://github.com/supczinskib/steinel-nightmatiq-esp32-c3-gateway/releases/download/v";
+    "https://github.com/CFenner/steinel-mesh-esphome-gateway/releases/download/v";
 static const char *const RELEASE_ASSET_PREFIX =
     "steinel-nightmatiq-esp32-c3-gateway-v";
 
