@@ -1731,19 +1731,22 @@ void NightmatiqMesh::handle_nodes_(AsyncWebServerRequest *request, bool with_sta
         body.append("null");
       else
         body.number("", static_cast<uint32_t>(std::lround(runtime.threshold_centilux / 100.0)));
-      // Steinel packs the firmware version into the composition version ID.
-      char version_text[24];
+      // Steinel packs the firmware version into the composition version ID. The
+      // text is built as std::string: a fixed buffer that is too small would cut
+      // the JSON off and break every client of this endpoint.
       body.append(",\"version_id\":");
       if (runtime.version_id == 0) {
         body.append("null,\"firmware_version\":null");
       } else {
-        std::snprintf(version_text, sizeof(version_text), "\"0x%04X\"", runtime.version_id);
-        body.append(version_text);
-        std::snprintf(version_text, sizeof(version_text), ",\"firmware_version\":\"%u.%u.%u\"",
-                      static_cast<unsigned>(runtime.version_id >> 11),
-                      static_cast<unsigned>((runtime.version_id >> 6) & 0x1F),
-                      static_cast<unsigned>(runtime.version_id & 0x3F));
-        body.append(version_text);
+        const uint16_t version_id = runtime.version_id;
+        char id_text[8];  // "0x" + 4 hex digits + NUL
+        std::snprintf(id_text, sizeof(id_text), "0x%04X", static_cast<unsigned>(version_id));
+        body.append("\"");
+        body.append(id_text);
+        body.append("\",\"firmware_version\":\"");
+        body.append(std::to_string(version_id >> 11) + "." + std::to_string((version_id >> 6) & 0x1F) + "." +
+                    std::to_string(version_id & 0x3F));
+        body.append("\"");
       }
       body.number(",\"failures\":", runtime.consecutive_failures);
       body.append(",\"sensors\":[");
