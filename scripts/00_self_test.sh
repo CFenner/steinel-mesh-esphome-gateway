@@ -89,7 +89,6 @@ for marker in \
   'CONFIG_BLE_MESH_PROVISIONER: y' \
   'CONFIG_BT_BLE_50_FEATURES_SUPPORTED: n' \
   'CONFIG_ESP_WIFI_SOFTAP_SUPPORT: y' \
-  'name_add_mac_suffix: true' \
   'factory_username: "admin"' \
   'factory_password: "12345678"' \
   'id: nightmatiq_ota' \
