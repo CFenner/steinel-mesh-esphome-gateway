@@ -42,6 +42,12 @@ static constexpr uint8_t NODE_TTL = 7;
 // answered the plain Sensor Get. Tried a limited number of times per device.
 static constexpr uint16_t PROPERTY_AMBIENT_LIGHT_LEVEL = 0x004E;
 static constexpr uint8_t NODE_SENSOR_PROBE_MAX_ATTEMPTS = 5;
+// Light Control properties read once per device after start-up and only logged,
+// to find where a device keeps its on-time after motion and its light levels:
+// Time Occupancy Delay, Time Prolong, Time Run On, the fade times, and the
+// Lightness On / Prolong / Standby levels.
+static constexpr uint16_t LC_PROBE_PROPERTIES[] = {0x003A, 0x003B, 0x003C, 0x0037, 0x0038, 0x0039,
+                                                    0x002E, 0x002F, 0x0030};
 
 namespace {
 
@@ -112,6 +118,15 @@ void NightmatiqMesh::build_node_poll_plan_(int only_node) {
     for (size_t element = 0; element < limit; element++)
       if ((node.element_caps[element] & CAP_SENSOR) != 0)
         plan.push_back({NodeRequestKind::SENSOR_GET, index, static_cast<uint8_t>(element), 0, false});
+    if (probe && lc >= 0) {
+      std::lock_guard<std::mutex> lock(this->node_mutex_);
+      NodeRuntime &state = this->node_runtime_[index];
+      if (!state.lc_probe_done) {
+        state.lc_probe_done = true;
+        for (const uint16_t property : LC_PROBE_PROPERTIES)
+          plan.push_back({NodeRequestKind::LC_PROPERTY_PROBE, index, static_cast<uint8_t>(lc), property, false});
+      }
+    }
     if (probe) {
       // A sensor element that has never produced a reading may need to be asked for
       // the ambient light level explicitly, and its descriptor tells which properties
@@ -296,6 +311,18 @@ bool NightmatiqMesh::send_node_request_(const NodeRequest &request) {
                                          ESP_BLE_MESH_MODEL_OP_LIGHT_LC_PROPERTY_GET))
         break;
       get.lc_property_get.property_id = LC_LIGHT_ON_THRESHOLD_PROPERTY;
+      return this->record_access_send_result_(AccessOperation::NODE_THRESHOLD_GET,
+                                              ESP_BLE_MESH_MODEL_OP_LIGHT_LC_PROPERTY_GET,
+                                              esp_ble_mesh_light_client_get_state(&common, &get));
+    }
+    case NodeRequestKind::LC_PROPERTY_PROBE: {
+      esp_ble_mesh_light_client_get_state_t get{};
+      if (!this->set_common_(common, light_lc_model_(), ESP_BLE_MESH_MODEL_OP_LIGHT_LC_PROPERTY_GET, destination))
+        break;
+      if (!this->begin_access_operation_(AccessOperation::NODE_THRESHOLD_GET,
+                                         ESP_BLE_MESH_MODEL_OP_LIGHT_LC_PROPERTY_GET))
+        break;
+      get.lc_property_get.property_id = request.value;
       return this->record_access_send_result_(AccessOperation::NODE_THRESHOLD_GET,
                                               ESP_BLE_MESH_MODEL_OP_LIGHT_LC_PROPERTY_GET,
                                               esp_ble_mesh_light_client_get_state(&common, &get));
@@ -501,6 +528,32 @@ void NightmatiqMesh::handle_node_light_(esp_ble_mesh_light_client_cb_event_t eve
   const bool lightness = received == ESP_BLE_MESH_MODEL_OP_LIGHT_LIGHTNESS_STATUS;
   const bool lc_mode = received == ESP_BLE_MESH_MODEL_OP_LIGHT_LC_MODE_STATUS;
   const bool property = received == ESP_BLE_MESH_MODEL_OP_LIGHT_LC_PROPERTY_STATUS;
+  if (this->node_inflight_valid_ && this->node_inflight_.node < this->node_table_.count &&
+      this->node_inflight_.kind == NodeRequestKind::LC_PROPERTY_PROBE) {
+    // Probe: only log the outcome, and never count a missing answer against the node.
+    const StoredNode &probed = this->node_table_.nodes[this->node_inflight_.node];
+    if (event == ESP_BLE_MESH_LIGHT_CLIENT_TIMEOUT_EVT || param->error_code != 0 || !property) {
+      ESP_LOGI(NODE_TAG, "Node '%s': light control property 0x%04X: no answer (event=%d error=%d)", probed.name,
+               static_cast<unsigned>(this->node_inflight_.value), static_cast<int>(event),
+               static_cast<int>(param->error_code));
+      this->complete_access_operation_(opcode, false);
+      return;
+    }
+    const auto &status = param->status_cb.lc_property_status;
+    char hex[40]{};
+    uint32_t number = 0;
+    const size_t length = status.property_value == nullptr ? 0 : status.property_value->len;
+    for (size_t i = 0; i < length && i < 4; i++) {
+      std::snprintf(hex + i * 2, sizeof(hex) - i * 2, "%02X", status.property_value->data[i]);
+      number |= static_cast<uint32_t>(status.property_value->data[i]) << (8 * i);
+    }
+    ESP_LOGI(NODE_TAG, "Node '%s': light control property 0x%04X = %s (%u bytes, value %u)", probed.name,
+             static_cast<unsigned>(status.property_id), length == 0 ? "empty" : hex,
+             static_cast<unsigned>(length), static_cast<unsigned>(number));
+    this->note_node_response_(param->params->ctx);
+    this->complete_access_operation_(opcode, true);
+    return;
+  }
   if (event == ESP_BLE_MESH_LIGHT_CLIENT_TIMEOUT_EVT || param->error_code != 0 || (!lightness && !lc_mode && !property) ||
       !this->node_inflight_valid_ || this->node_inflight_.node >= this->node_runtime_.size()) {
     this->node_request_failed_();

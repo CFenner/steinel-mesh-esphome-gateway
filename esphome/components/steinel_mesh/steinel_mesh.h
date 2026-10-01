@@ -273,6 +273,9 @@ class NightmatiqMesh final : public Component, public AsyncWebHandler {
     // sensor elements that never produced a reading with the plain Sensor Get.
     SENSOR_PROPERTY_GET,
     SENSOR_DESCRIPTOR_GET,
+    // Light LC Property Get for one property id (value). A one-off probe whose
+    // result is only logged; a missing answer does not count against the node.
+    LC_PROPERTY_PROBE,
   };
   struct NodeRequest {
     NodeRequestKind kind{NodeRequestKind::ONOFF_GET};
@@ -300,6 +303,7 @@ class NightmatiqMesh final : public Component, public AsyncWebHandler {
     uint16_t version_id{0};
     uint8_t version_attempts{0};
     uint8_t sensor_probe_attempts{0};
+    bool lc_probe_done{false};
     bool responded{false};
     uint32_t last_response_at{0};
     uint32_t consecutive_failures{0};

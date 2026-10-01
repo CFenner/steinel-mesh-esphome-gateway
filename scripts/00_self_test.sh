@@ -345,6 +345,7 @@ for source, marker in (
     (nodes_source, "handle_node_composition_"),
     (nodes_source, "NodeRequestKind::SENSOR_DESCRIPTOR_GET"),
     (nodes_source, "subscribe_sensor_groups_"),
+    (nodes_source, "NodeRequestKind::LC_PROPERTY_PROBE"),
     (nodes_source, "handle_node_sensor_publish_"),
     (mesh, "ESP_BLE_MESH_SENSOR_CLIENT_PUBLISH_EVT"),
     (web_source, "read_publish_address"),
