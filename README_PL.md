@@ -59,7 +59,7 @@ Opcjonalny moduł interfejsu łączy stan sensora, natężenie oświetlenia, try
 - Odczytuje stan włączenia, jasność, tryb automatyczny, ruch i natężenie oświetlenia każdego urządzenia.
 - Steruje lampami: włączanie/wyłączanie, jasność i tryb automatyczny (sterowany czujnikiem).
 - Lokalne API: `GET /api/nodes` oraz `POST /api/nodes/<adres>?on=1&brightness=40&auto=0`.
-- Integracja Home Assistant dla wszystkich urządzeń, utrzymywana w osobnym repozytorium: [HomeAssistant-Steinel-BT](https://github.com/CFenner/HomeAssistant-Steinel-BT).
+- Integracja Home Assistant dla wszystkich urządzeń, utrzymywana w osobnym repozytorium: [HomeAssistant-Steinel-Mesh](https://github.com/CFenner/HomeAssistant-Steinel-Mesh).
 
 ### Odporna obsługa adresów i sesji
 

@@ -10,7 +10,7 @@ Generic multi-node support (experimental). Verified on a real network with an IS
 - All controllable nodes of the backup are stored and restored, not only the NightmatIQ Plus.
 - `GET /steinel/nodes` lists the stored nodes; `GET /api/nodes` adds live state (on/off, brightness, automatic mode, sensor readings).
 - `POST /api/nodes/<address>` with `on`, `brightness` (0-100) and `auto` controls a lamp.
-- New Home Assistant integration `steinel_mesh` (maintained in [HomeAssistant-Steinel-BT](https://github.com/CFenner/HomeAssistant-Steinel-BT)) creates lights, automatic-mode switches, illuminance and presence sensors for every node.
+- New Home Assistant integration `steinel_mesh` (maintained in [HomeAssistant-Steinel-Mesh](https://github.com/CFenner/HomeAssistant-Steinel-Mesh)) creates lights, automatic-mode switches, illuminance and presence sensors for every node.
 - Bluetooth Mesh limits raised (12 nodes, replay protection list of 16) and a Light Lightness client added.
 
 ## 1.1.1 — 2026-08-27
