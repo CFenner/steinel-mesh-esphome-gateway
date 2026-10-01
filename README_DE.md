@@ -12,6 +12,8 @@ Diese Community-Firmware auf Basis von ESPHome macht einen ESP32-C3 Super Mini z
 
 Autor und Betreuer: **Bartosz Supcziński** — <bartek@env.pl>
 
+> **Ein großes Dankeschön an [Bartosz Supcziński](https://github.com/supczinskib).** Dieses Projekt ist ein Fork seines Projekts [steinel-nightmatiq-esp32-c3-gateway](https://github.com/supczinskib/steinel-nightmatiq-esp32-c3-gateway) und würde ohne es nicht existieren. Der Bluetooth-Mesh-Client, die Adress- und Sitzungsverwaltung, die ESPHome-Komponente, die lokale Weboberfläche und die Firmware-Aktualisierung stammen alle von ihm; dieser Fork baut darauf auf, um alle Geräte eines Steinel-Mesh-Netzwerks zu steuern und nicht nur das NightmatIQ Plus. Danke, dass du es entwickelt und als Open Source unter der GPL-3.0 veröffentlicht hast.
+
 ## Funktionsweise
 
 NightmatIQ Plus verwendet Bluetooth Mesh, während Home Assistant über ein IP-Netzwerk kommuniziert. Der ESP32-C3 verbindet beide Umgebungen: Er tritt der vorhandenen Mesh-Installation bei, tauscht Befehle und Statusmeldungen direkt mit dem Sensor aus und veröffentlicht sie über ESPHome. Die Netzwerkkonfiguration wird einmalig aus einer lokalen Sicherungsdatei importiert; ein Steinel-Konto oder Cloud-Zugriff ist nicht nötig, und der laufende Betrieb erfolgt lokal.
