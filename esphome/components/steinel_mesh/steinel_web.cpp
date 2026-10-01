@@ -1602,7 +1602,7 @@ void NightmatiqMesh::handle_status_(AsyncWebServerRequest *request) {
   if (this->configured_) {
     char values[96];
     std::snprintf(values, sizeof(values),
-                  ",\"local_address\":\"%04X\",\"node_address\":\"%04X\",\"iv_index\":%" PRIu32,
+                  ",\"local_address\":\"0x%04X\",\"node_address\":\"0x%04X\",\"iv_index\":%" PRIu32,
                   this->config_.local_address, this->config_.onoff_address, this->config_.iv_index);
     body.append(",\"network\":\"");
     body.escaped(this->config_.network_name);
