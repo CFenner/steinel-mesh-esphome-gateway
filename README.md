@@ -59,7 +59,7 @@ An optional frontend module combines sensor state, illuminance, operating mode a
 - Reads on/off state, brightness, automatic mode, motion and illuminance of each device.
 - Controls lamps: on/off, brightness and automatic (sensor controlled) mode.
 - Local API: `GET /api/nodes` and `POST /api/nodes/<address>?on=1&brightness=40&auto=0`.
-- Optional Home Assistant integration for all devices: `home-assistant/custom_components/steinel_mesh_gateway`.
+- Home Assistant integration for all devices, maintained in a separate repository: [HomeAssistant-Steinel-BT](https://github.com/CFenner/HomeAssistant-Steinel-BT).
 
 ### Reliable address and session handling
 

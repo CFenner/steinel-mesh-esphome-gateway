@@ -59,7 +59,7 @@ Ein optionales Frontend-Modul fasst Sensorzustand, Beleuchtungsstärke, Betriebs
 - Liest Schaltzustand, Helligkeit, Automatikmodus, Bewegung und Beleuchtungsstärke jedes Geräts.
 - Steuert Leuchten: Ein/Aus, Helligkeit und Automatikmodus (sensorgesteuert).
 - Lokale API: `GET /api/nodes` und `POST /api/nodes/<Adresse>?on=1&brightness=40&auto=0`.
-- Optionale Home-Assistant-Integration für alle Geräte: `home-assistant/custom_components/steinel_mesh_gateway`.
+- Home-Assistant-Integration für alle Geräte, in einem eigenen Repository gepflegt: [HomeAssistant-Steinel-BT](https://github.com/CFenner/HomeAssistant-Steinel-BT).
 
 ### Zuverlässige Adress- und Sitzungsverwaltung
 

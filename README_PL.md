@@ -53,6 +53,14 @@ Opcjonalny moduł interfejsu łączy stan sensora, natężenie oświetlenia, try
 - Sterowanie trybami `Auto`, `Zawsze włączone` i `Zawsze wyłączone`.
 - Zmiana progu zmierzchowego w zakresie od `1` do `1500 lx`.
 
+### Wszystkie urządzenia sieci
+
+- Zapisuje każdy sterowalny węzeł z kopii, nie tylko NightmatIQ Plus.
+- Odczytuje stan włączenia, jasność, tryb automatyczny, ruch i natężenie oświetlenia każdego urządzenia.
+- Steruje lampami: włączanie/wyłączanie, jasność i tryb automatyczny (sterowany czujnikiem).
+- Lokalne API: `GET /api/nodes` oraz `POST /api/nodes/<adres>?on=1&brightness=40&auto=0`.
+- Integracja Home Assistant dla wszystkich urządzeń, utrzymywana w osobnym repozytorium: [HomeAssistant-Steinel-BT](https://github.com/CFenner/HomeAssistant-Steinel-BT).
+
 ### Odporna obsługa adresów i sesji
 
 - Wybór adresu Mesh bramki z niezajętej części zakresu provisionera.
