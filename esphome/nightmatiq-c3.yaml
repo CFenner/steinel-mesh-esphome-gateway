@@ -1,8 +1,8 @@
 substitutions:
   name: "nightmatiq-gateway"
-  friendly_name: "Steinel NightmatIQ Plus"
-  device_description: "Standalone Steinel NightmatIQ Plus gateway for ESP32-C3"
-  project_name: "envpl.steinel_nightmatiq_gateway"
+  friendly_name: "Steinel Mesh Gateway"
+  device_description: "Local Steinel Bluetooth Mesh gateway for ESP32-C3"
+  project_name: "cfenner.steinel_mesh_gateway"
   project_version: "1.1.1"
   factory_username: "admin"
   factory_password: "12345678"
@@ -173,19 +173,19 @@ web_server:
 binary_sensor:
   - platform: template
     id: nightmatiq_mesh_ready
-    name: "NightmatIQ Mesh Ready"
+    name: "Mesh Ready"
     entity_category: diagnostic
 
   - platform: template
     id: nightmatiq_actual_output
-    name: "NightmatIQ Actual Light Output"
+    name: "Primary Device Light Output"
     internal: ${main_light_internal}
     icon: mdi:lightbulb
 
 sensor:
   - platform: template
     id: nightmatiq_rssi
-    name: "NightmatIQ Signal Strength"
+    name: "Signal Strength"
     device_class: signal_strength
     state_class: measurement
     unit_of_measurement: dBm
@@ -195,14 +195,14 @@ sensor:
 
   - platform: template
     id: nightmatiq_hardware_version
-    name: "NightmatIQ Hardware Revision"
+    name: "Primary Device Hardware Revision"
     accuracy_decimals: 0
     update_interval: never
     entity_category: diagnostic
 
   - platform: template
     id: nightmatiq_lux
-    name: "NightmatIQ Illuminance"
+    name: "Primary Device Illuminance"
     internal: ${main_light_internal}
     device_class: illuminance
     state_class: measurement
@@ -212,7 +212,7 @@ sensor:
 
 button:
   - platform: template
-    name: "NightmatIQ Refresh"
+    name: "Refresh"
     icon: mdi:refresh
     entity_category: diagnostic
     on_press:
@@ -221,7 +221,7 @@ button:
 number:
   - platform: template
     id: nightmatiq_threshold
-    name: "NightmatIQ Twilight Threshold"
+    name: "Primary Device Twilight Threshold"
     internal: ${main_light_internal}
     icon: mdi:brightness-6
     unit_of_measurement: lx
@@ -235,7 +235,7 @@ number:
 select:
   - platform: template
     id: nightmatiq_mode
-    name: "NightmatIQ Mode"
+    name: "Primary Device Mode"
     internal: ${main_light_internal}
     icon: mdi:theme-light-dark
     optimistic: true
@@ -251,30 +251,30 @@ select:
 text_sensor:
   - platform: template
     id: nightmatiq_status
-    name: "NightmatIQ Status"
+    name: "Status"
     icon: mdi:bluetooth-connect
     entity_category: diagnostic
 
   - platform: template
     id: nightmatiq_firmware_version
-    name: "NightmatIQ Installed Firmware"
+    name: "Primary Device Firmware"
     icon: mdi:chip
     entity_category: diagnostic
 
   - platform: template
     id: nightmatiq_manufacturer
-    name: "NightmatIQ Manufacturer"
+    name: "Primary Device Manufacturer"
     icon: mdi:factory
     entity_category: diagnostic
 
   - platform: template
     id: nightmatiq_company_id
-    name: "NightmatIQ Company ID"
+    name: "Primary Device Company ID"
     icon: mdi:identifier
     entity_category: diagnostic
 
   - platform: template
     id: nightmatiq_product_id
-    name: "NightmatIQ Product ID"
+    name: "Primary Device Product ID"
     icon: mdi:identifier
     entity_category: diagnostic

@@ -82,7 +82,7 @@ The standard ESPHome API publishes:
 
 The primary device's light entities (actual light output, illuminance, operating mode and twilight threshold) are hidden from Home Assistant by default, because the Home Assistant integration [HomeAssistant-Steinel-Mesh](https://github.com/CFenner/HomeAssistant-Steinel-Mesh) controls every device, including that one. While they are hidden, the gateway also skips its old NightmatIQ-only polling: the primary device is polled by the same engine as every other device. To publish them again (which also restores that polling), set `main_light_internal: "false"` in the substitutions of `esphome/nightmatiq-c3.yaml` and rebuild.
 
-Home Assistant displays all published entities under one device named **Steinel NightmatIQ Plus**.
+Home Assistant displays all published entities under one device named **Steinel Mesh Gateway**.
 
 ## Hardware and compatibility
 
@@ -215,7 +215,7 @@ Home Assistant usually discovers the device automatically through ESPHome. If it
 1. Open **Settings → Devices & services**.
 2. Add the **ESPHome** integration.
 3. Enter the gateway IP address or hostname.
-4. Assign **Steinel NightmatIQ Plus** to the required area.
+4. Assign **Steinel Mesh Gateway** to the required area.
 
 All control and diagnostic entities are attached directly to that device.
 
@@ -270,7 +270,7 @@ This project is licensed under the GNU General Public License version 3 only (`G
 ## Credits and support
 
 - Author and maintainer: **Bartosz Supcziński**, <bartek@env.pl>.
-- ESPHome project identifier: `envpl.steinel_nightmatiq_gateway`.
+- ESPHome project identifier: `cfenner.steinel_mesh_gateway`.
 
 When reporting a problem, include the firmware version, ESPHome version, reset reason and relevant logs. Remove passwords, keys, authorization headers, private backups and network identifiers before sharing diagnostics.
 
