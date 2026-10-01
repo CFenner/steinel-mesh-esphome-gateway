@@ -646,10 +646,18 @@ bool NightmatiqMesh::restore_primary_node_() {
 
   esp_ble_mesh_node_t node{};
   node.unicast_addr = this->config_.onoff_address;
-  // NightmatIQ Plus has three elements in the authenticated Steinel backup.
   // The provisioner checks this range before it permits any unicast Access
-  // message or accepts a response from the device.
+  // message or accepts a response from the device. The imported node table knows
+  // the real element count (the IS 180 has four, where the NightmatIQ Plus has
+  // three, and the sensor is on the last one); without it assume three.
   node.element_num = 3;
+  if (this->node_table_valid_) {
+    for (uint16_t index = 0; index < this->node_table_.count; index++) {
+      const StoredNode &stored = this->node_table_.nodes[index];
+      if (stored.address == this->config_.onoff_address && stored.element_count > node.element_num)
+        node.element_num = stored.element_count;
+    }
+  }
   node.net_idx = this->config_.net_key_index;
   node.flags = 0;
   node.iv_index = this->config_.iv_index;
