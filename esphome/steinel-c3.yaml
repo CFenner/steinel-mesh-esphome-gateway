@@ -111,16 +111,16 @@ external_components:
   - source:
       type: local
       path: components
-    components: [nightmatiq_mesh]
+    components: [steinel_mesh]
 
-nightmatiq_mesh:
+steinel_mesh:
   id: nightmatiq_gateway
   extended_diagnostics: true
   lux_sensor_id: nightmatiq_lux
   rssi_sensor_id: nightmatiq_rssi
   threshold_number_id: nightmatiq_threshold
   mode_select_id: nightmatiq_mode
-  ready_binary_sensor_id: nightmatiq_mesh_ready
+  ready_binary_sensor_id: steinel_mesh_ready
   actual_output_binary_sensor_id: nightmatiq_actual_output
   status_text_sensor_id: nightmatiq_status
   ota_id: nightmatiq_ota
@@ -170,7 +170,7 @@ web_server:
 
 binary_sensor:
   - platform: template
-    id: nightmatiq_mesh_ready
+    id: steinel_mesh_ready
     name: "Mesh Ready"
     entity_category: diagnostic
 

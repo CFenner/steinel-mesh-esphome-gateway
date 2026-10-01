@@ -34,8 +34,8 @@ CONF_WEB_USERNAME = "web_username"
 CONF_WEB_PASSWORD = "web_password"
 CONF_OTA_ID = "ota_id"
 
-nightmatiq_ns = cg.esphome_ns.namespace("nightmatiq_mesh")
-NightmatiqMesh = nightmatiq_ns.class_(
+steinel_ns = cg.esphome_ns.namespace("steinel_mesh")
+NightmatiqMesh = steinel_ns.class_(
     "NightmatiqMesh", cg.PollingComponent
 )
 

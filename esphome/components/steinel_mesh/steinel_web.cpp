@@ -1,5 +1,5 @@
-#include "nightmatiq_mesh.h"
-#include "nightmatiq_page.h"
+#include "steinel_mesh.h"
+#include "steinel_page.h"
 
 #include <algorithm>
 #include <cctype>
@@ -33,9 +33,9 @@
 #include "mbedtls/base64.h"
 #include "mbedtls/sha256.h"
 
-namespace esphome::nightmatiq_mesh {
+namespace esphome::steinel_mesh {
 
-static const char *const WEB_TAG = "nightmatiq_web";
+static const char *const WEB_TAG = "steinel_web";
 static constexpr uint32_t IMPORT_TASK_STACK_BYTES = 8192;
 static constexpr uint32_t AUTO_UPDATE_TASK_STACK_BYTES = 10240;
 static const char *const RELEASE_ASSET_REDIRECT_PREFIX =
@@ -2382,4 +2382,4 @@ void NightmatiqMesh::import_task_(void *parameter) {
   vTaskDelete(nullptr);
 }
 
-}  // namespace esphome::nightmatiq_mesh
+}  // namespace esphome::steinel_mesh

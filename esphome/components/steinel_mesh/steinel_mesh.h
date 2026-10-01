@@ -27,7 +27,7 @@
 #include "esp_http_client.h"
 
 namespace esphome {
-namespace nightmatiq_mesh {
+namespace steinel_mesh {
 
 class NightmatiqMesh final : public PollingComponent, public AsyncWebHandler {
  public:
@@ -375,7 +375,7 @@ class NightmatiqMesh final : public PollingComponent, public AsyncWebHandler {
   bool save_node_table_(const StoredNodeTable &table);
   void clear_node_table_();
   bool restore_primary_node_();
-  // Generic multi-node engine (nightmatiq_nodes.cpp).
+  // Generic multi-node engine (steinel_nodes.cpp).
   void advance_node_engine_(uint32_t now);
   void build_node_poll_plan_(int only_node = -1);
   bool send_node_request_(const NodeRequest &request);
@@ -734,5 +734,5 @@ class NightmatiqMesh final : public PollingComponent, public AsyncWebHandler {
   bool initial_poll_started_{false};
 };
 
-}  // namespace nightmatiq_mesh
+}  // namespace steinel_mesh
 }  // namespace esphome

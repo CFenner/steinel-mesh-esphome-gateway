@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-CONFIG="$ROOT_DIR/esphome/nightmatiq-c3.yaml"
+CONFIG="$ROOT_DIR/esphome/steinel-c3.yaml"
 FAIL=0
 IS_GIT_WORKTREE=0
 if git -C "$ROOT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
@@ -32,15 +32,15 @@ for path in \
   "$ROOT_DIR/README.md" \
   "$ROOT_DIR/CHANGELOG.md" \
   "$CONFIG" \
-  "$ROOT_DIR/esphome/components/nightmatiq_mesh/__init__.py" \
-  "$ROOT_DIR/esphome/components/nightmatiq_mesh/nightmatiq_mesh.h" \
-  "$ROOT_DIR/esphome/components/nightmatiq_mesh/nightmatiq_mesh.cpp" \
-  "$ROOT_DIR/esphome/components/nightmatiq_mesh/nightmatiq_web.cpp" \
-  "$ROOT_DIR/esphome/components/nightmatiq_mesh/nightmatiq_page.html" \
-  "$ROOT_DIR/esphome/components/nightmatiq_mesh/nightmatiq_page.h" \
+  "$ROOT_DIR/esphome/components/steinel_mesh/__init__.py" \
+  "$ROOT_DIR/esphome/components/steinel_mesh/steinel_mesh.h" \
+  "$ROOT_DIR/esphome/components/steinel_mesh/steinel_mesh.cpp" \
+  "$ROOT_DIR/esphome/components/steinel_mesh/steinel_web.cpp" \
+  "$ROOT_DIR/esphome/components/steinel_mesh/steinel_page.html" \
+  "$ROOT_DIR/esphome/components/steinel_mesh/steinel_page.h" \
   "$ROOT_DIR/scripts/10_prepare_release.sh" \
   "$ROOT_DIR/docs/images/esp32-c3-super-mini.jpg" \
-  "$ROOT_DIR/docs/images/nightmatiq-web-interface.png" \
+  "$ROOT_DIR/docs/images/steinel-web-interface.png" \
   "$ROOT_DIR/docs/images/home-assistant-device.png"; do
   if [[ -f "$path" ]]; then
     ok "required file: ${path#"$ROOT_DIR/"}"
@@ -133,8 +133,8 @@ for path in (root / "scripts").glob("*.py"):
     except SyntaxError as error:
         errors.append(f"invalid Python syntax in {path.name}: {error}")
 
-html = (root / "esphome/components/nightmatiq_mesh/nightmatiq_page.html").read_bytes()
-header = (root / "esphome/components/nightmatiq_mesh/nightmatiq_page.h").read_text(encoding="utf-8")
+html = (root / "esphome/components/steinel_mesh/steinel_page.html").read_bytes()
+header = (root / "esphome/components/steinel_mesh/steinel_page.h").read_text(encoding="utf-8")
 size_match = re.search(r"NIGHTMATIQ_PAGE_RAW_SIZE = (\d+);", header)
 array_match = re.search(r"NIGHTMATIQ_PAGE_GZ\[\d+\] = \{(.*?)\};", header, re.DOTALL)
 if size_match is None or array_match is None:
@@ -151,7 +151,7 @@ else:
         if int(size_match.group(1)) != len(html):
             errors.append("generated NightmatIQ raw page size is stale")
 
-mesh = (root / "esphome/components/nightmatiq_mesh/nightmatiq_mesh.cpp").read_text(encoding="utf-8")
+mesh = (root / "esphome/components/steinel_mesh/steinel_mesh.cpp").read_text(encoding="utf-8")
 for marker in (
     "esp_ble_gap_set_rand_addr(random_address)",
     "esp_ble_gap_set_scan_params(&this->identity_scan_params_)",
@@ -162,10 +162,10 @@ for marker in (
     if marker not in mesh:
         errors.append(f"missing NightmatIQ source marker: {marker}")
 
-header_source = (root / "esphome/components/nightmatiq_mesh/nightmatiq_mesh.h").read_text(encoding="utf-8")
-web_source = (root / "esphome/components/nightmatiq_mesh/nightmatiq_web.cpp").read_text(encoding="utf-8")
-component_source = (root / "esphome/components/nightmatiq_mesh/__init__.py").read_text(encoding="utf-8")
-config_source = (root / "esphome/nightmatiq-c3.yaml").read_text(encoding="utf-8")
+header_source = (root / "esphome/components/steinel_mesh/steinel_mesh.h").read_text(encoding="utf-8")
+web_source = (root / "esphome/components/steinel_mesh/steinel_web.cpp").read_text(encoding="utf-8")
+component_source = (root / "esphome/components/steinel_mesh/__init__.py").read_text(encoding="utf-8")
+config_source = (root / "esphome/steinel-c3.yaml").read_text(encoding="utf-8")
 page_source = html.decode("utf-8")
 for source, marker in (
     (header_source, "ADDRESS_POOL_TARGET_SIZE = 2048"),
@@ -358,7 +358,7 @@ control_handlers = web_source.split("void NightmatiqMesh::handle_mode_", 1)[1].s
 if "send_json_(request, 202" in control_handlers:
     errors.append("NightmatIQ web controls must use an HTTP status supported by web_server_idf")
 
-nodes_source = (root / "esphome/components/nightmatiq_mesh/nightmatiq_nodes.cpp").read_text(encoding="utf-8")
+nodes_source = (root / "esphome/components/steinel_mesh/steinel_nodes.cpp").read_text(encoding="utf-8")
 if "send_json_(request, 202" in nodes_source:
     errors.append("node API must use an HTTP status supported by web_server_idf (200, 204, 400, 401, 404, 409, 422)")
 

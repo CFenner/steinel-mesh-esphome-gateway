@@ -26,7 +26,7 @@ NightmatIQ Plus communicates through Bluetooth Mesh, while Home Assistant uses a
 
 The built-in page provides setup, control, diagnostics and browser-based firmware updates.
 
-![NightmatIQ local web interface](docs/images/nightmatiq-web-interface.png)
+![NightmatIQ local web interface](docs/images/steinel-web-interface.png)
 
 ### Home Assistant device
 
@@ -79,7 +79,7 @@ The standard ESPHome API publishes:
 - gateway diagnostics: uptime, last reset reason, free heap, largest free block and the Bluetooth Mesh traffic counters (transmissions, send errors, last send error, responses, timeouts);
 - a manual refresh action.
 
-The primary device's light entities (actual light output, illuminance, operating mode and twilight threshold) are hidden from Home Assistant by default, because the Home Assistant integration [HomeAssistant-Steinel-Mesh](https://github.com/CFenner/HomeAssistant-Steinel-Mesh) controls every device, including that one. While they are hidden, the gateway also skips its old NightmatIQ-only polling: the primary device is polled by the same engine as every other device. To publish them again (which also restores that polling), set `main_light_internal: "false"` in the substitutions of `esphome/nightmatiq-c3.yaml` and rebuild.
+The primary device's light entities (actual light output, illuminance, operating mode and twilight threshold) are hidden from Home Assistant by default, because the Home Assistant integration [HomeAssistant-Steinel-Mesh](https://github.com/CFenner/HomeAssistant-Steinel-Mesh) controls every device, including that one. While they are hidden, the gateway also skips its old NightmatIQ-only polling: the primary device is polled by the same engine as every other device. To publish them again (which also restores that polling), set `main_light_internal: "false"` in the substitutions of `esphome/steinel-c3.yaml` and rebuild.
 
 Home Assistant displays all published entities under one device named **Steinel Mesh Gateway**.
 
@@ -113,8 +113,8 @@ The firmware is designed for the ESP32-C3 and ESP-IDF. Bluetooth 5 extended feat
 
 | Path | Purpose |
 |---|---|
-| `esphome/nightmatiq-c3.yaml` | Main ESPHome firmware configuration |
-| `esphome/components/nightmatiq_mesh/` | Bluetooth Mesh, multi-device engine and local web component |
+| `esphome/steinel-c3.yaml` | Main ESPHome firmware configuration |
+| `esphome/components/steinel_mesh/` | Bluetooth Mesh, multi-device engine and local web component |
 | `scripts/` | Installation, validation, USB and OTA helpers |
 | `docs/images/` | Public README images |
 
@@ -222,7 +222,7 @@ All control and diagnostic entities are attached directly to that device.
 
 During network import, each gateway derives a Mesh address policy from the selected installation and its own hardware identity. The same firmware can therefore be configured for different ESP32-C3 boards and NightmatIQ installations.
 
-The device name has no MAC suffix, so every gateway uses the hostname and access-point name `nightmatiq-gateway`. When you run more than one gateway on the same network, give each its own `name` in the substitutions of `esphome/nightmatiq-c3.yaml` before building (or add `name_add_mac_suffix: true` under `esphome:` to derive a unique name from the MAC address). Configure a unique administrator password on each gateway.
+The device name has no MAC suffix, so every gateway uses the hostname and access-point name `nightmatiq-gateway`. When you run more than one gateway on the same network, give each its own `name` in the substitutions of `esphome/steinel-c3.yaml` before building (or add `name_add_mac_suffix: true` under `esphome:` to derive a unique name from the MAC address). Configure a unique administrator password on each gateway.
 
 ## Fallback access point
 

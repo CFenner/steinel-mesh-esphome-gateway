@@ -1,4 +1,4 @@
-#include "nightmatiq_mesh.h"
+#include "steinel_mesh.h"
 
 #include <algorithm>
 #include <cinttypes>
@@ -34,9 +34,9 @@ int bt_mesh_provisioner_restore_node_info(struct bt_mesh_node *node);
 }
 
 namespace esphome {
-namespace nightmatiq_mesh {
+namespace steinel_mesh {
 
-static const char *const TAG = "nightmatiq_mesh";
+static const char *const TAG = "steinel_mesh";
 static constexpr uint16_t AMBIENT_LIGHT_LEVEL_PROPERTY = 0x004E;
 static constexpr uint16_t LC_LIGHT_ON_THRESHOLD_PROPERTY = 0x002B;
 static constexpr uint8_t MESSAGE_TTL = 7;
@@ -2340,5 +2340,5 @@ void NightmatiqMesh::resume_ble_after_mesh_() {
   this->ble_resume_pending_.store(false);
 }
 
-}  // namespace nightmatiq_mesh
+}  // namespace steinel_mesh
 }  // namespace esphome

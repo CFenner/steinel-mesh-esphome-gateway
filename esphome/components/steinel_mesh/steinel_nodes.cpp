@@ -1,11 +1,11 @@
 // Generic multi-node engine.
 //
-// The NightmatIQ logic in nightmatiq_mesh.cpp drives exactly one node. This
+// The NightmatIQ logic in steinel_mesh.cpp drives exactly one node. This
 // file adds a small scheduler that reads and controls every node stored from the
 // imported backup (lamps, sensors) through standard SIG models. It shares the
 // single acknowledged-access slot with the NightmatIQ code, so at most one
 // request is ever in flight and neither side can disturb the other.
-#include "nightmatiq_mesh.h"
+#include "steinel_mesh.h"
 
 #include <algorithm>
 #include <cinttypes>
@@ -21,9 +21,9 @@
 #include "esp_idf_version.h"
 
 namespace esphome {
-namespace nightmatiq_mesh {
+namespace steinel_mesh {
 
-static const char *const NODE_TAG = "nightmatiq_nodes";
+static const char *const NODE_TAG = "steinel_nodes";
 // Idle time after each request. It keeps the radio free for the NightmatIQ
 // control path and for Composition Data reads.
 static constexpr uint32_t NODE_REQUEST_GAP_MS = 350;
@@ -744,5 +744,5 @@ void NightmatiqMesh::handle_api_node_(AsyncWebServerRequest *request) {
   send_json_(request, 200, "{\"message\":\"Command queued\"}");
 }
 
-}  // namespace nightmatiq_mesh
+}  // namespace steinel_mesh
 }  // namespace esphome
