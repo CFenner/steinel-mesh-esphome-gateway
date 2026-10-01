@@ -383,6 +383,8 @@ for source, marker in (
     (page_source, "/steinel/import"),
     (page_source, "/api/nodes"),
     (page_source, "nodeCommand(a,{threshold"),
+    (page_source, "n.company_id"),
+    (page_source, "st.firmware_version"),
 ):
     if marker not in source:
         errors.append(f"missing multi-node source marker: {marker}")
