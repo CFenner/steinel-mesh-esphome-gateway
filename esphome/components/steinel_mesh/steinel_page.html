@@ -60,7 +60,7 @@ async function poll(){
     q('#setup').classList.toggle('hidden',j.configured);
     if(j.configured){
       q('#networkName').textContent=j.network;
-      q('#localAddress').textContent=j.local_address;
+      q('#localAddress').textContent='0x'+j.local_address;
       q('#savedIv').textContent=`${j.iv_index}${j.iv_index_confirmed?' · Confirmed':' · Synchronizing'}`;
       q('#runtimeMode').textContent=j.runtime_mode;
       q('#meshState').textContent=j.enabled?(j.mesh_ready?'Ready':'Synchronizing'):'Disabled';
