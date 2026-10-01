@@ -56,8 +56,8 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Required(CONF_FIRMWARE_VERSION_TEXT_SENSOR_ID): cv.use_id(text_sensor.TextSensor),
         cv.Required(CONF_HARDWARE_VERSION_SENSOR_ID): cv.use_id(sensor.Sensor),
         cv.Required(CONF_MANUFACTURER_TEXT_SENSOR_ID): cv.use_id(text_sensor.TextSensor),
-        cv.Required(CONF_COMPANY_ID_TEXT_SENSOR_ID): cv.use_id(text_sensor.TextSensor),
-        cv.Required(CONF_PRODUCT_ID_TEXT_SENSOR_ID): cv.use_id(text_sensor.TextSensor),
+        cv.Optional(CONF_COMPANY_ID_TEXT_SENSOR_ID): cv.use_id(text_sensor.TextSensor),
+        cv.Optional(CONF_PRODUCT_ID_TEXT_SENSOR_ID): cv.use_id(text_sensor.TextSensor),
         cv.Optional(CONF_EXTENDED_DIAGNOSTICS, default=True): cv.boolean,
         cv.Required(CONF_WEB_USERNAME): cv.string_strict,
         cv.Required(CONF_WEB_PASSWORD): cv.sensitive(cv.string_strict),
@@ -87,8 +87,6 @@ async def to_code(config):
     firmware_version = await cg.get_variable(config[CONF_FIRMWARE_VERSION_TEXT_SENSOR_ID])
     hardware_version = await cg.get_variable(config[CONF_HARDWARE_VERSION_SENSOR_ID])
     manufacturer = await cg.get_variable(config[CONF_MANUFACTURER_TEXT_SENSOR_ID])
-    company_id = await cg.get_variable(config[CONF_COMPANY_ID_TEXT_SENSOR_ID])
-    product_id = await cg.get_variable(config[CONF_PRODUCT_ID_TEXT_SENSOR_ID])
     cg.add(var.set_lux_sensor(lux))
     cg.add(var.set_rssi_sensor(rssi))
     cg.add(var.set_threshold_number(threshold))
@@ -99,6 +97,12 @@ async def to_code(config):
     cg.add(var.set_firmware_version_text_sensor(firmware_version))
     cg.add(var.set_hardware_version_sensor(hardware_version))
     cg.add(var.set_manufacturer_text_sensor(manufacturer))
-    cg.add(var.set_company_id_text_sensor(company_id))
-    cg.add(var.set_product_id_text_sensor(product_id))
+    # These two are optional: the primary device's company and product ID are not
+    # published to Home Assistant, so the sensors are normally not configured.
+    if CONF_COMPANY_ID_TEXT_SENSOR_ID in config:
+        company_id = await cg.get_variable(config[CONF_COMPANY_ID_TEXT_SENSOR_ID])
+        cg.add(var.set_company_id_text_sensor(company_id))
+    if CONF_PRODUCT_ID_TEXT_SENSOR_ID in config:
+        product_id = await cg.get_variable(config[CONF_PRODUCT_ID_TEXT_SENSOR_ID])
+        cg.add(var.set_product_id_text_sensor(product_id))
     cg.add(var.set_web_credentials(config[CONF_WEB_USERNAME], config[CONF_WEB_PASSWORD]))

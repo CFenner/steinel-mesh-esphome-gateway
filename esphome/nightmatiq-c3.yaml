@@ -127,8 +127,6 @@ nightmatiq_mesh:
   firmware_version_text_sensor_id: nightmatiq_firmware_version
   hardware_version_sensor_id: nightmatiq_hardware_version
   manufacturer_text_sensor_id: nightmatiq_manufacturer
-  company_id_text_sensor_id: nightmatiq_company_id
-  product_id_text_sensor_id: nightmatiq_product_id
   ota_id: nightmatiq_ota
   web_username: "${factory_username}"
   web_password: "${factory_password}"
@@ -333,14 +331,3 @@ text_sensor:
     icon: mdi:factory
     entity_category: diagnostic
 
-  - platform: template
-    id: nightmatiq_company_id
-    name: "Primary Device Company ID"
-    icon: mdi:identifier
-    entity_category: diagnostic
-
-  - platform: template
-    id: nightmatiq_product_id
-    name: "Primary Device Product ID"
-    icon: mdi:identifier
-    entity_category: diagnostic

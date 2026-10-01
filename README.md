@@ -77,7 +77,7 @@ The standard ESPHome API publishes:
 - Bluetooth Mesh readiness and status;
 - signal strength;
 - installed firmware and hardware revision;
-- manufacturer, Company ID and Product ID;
+- the primary device's manufacturer;
 - gateway diagnostics: uptime, last reset reason, free heap, largest free block and the Bluetooth Mesh traffic counters (transmissions, send errors, last send error, responses, timeouts);
 - a manual refresh action.
 
