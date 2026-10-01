@@ -53,8 +53,8 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Required(CONF_READY_BINARY_SENSOR_ID): cv.use_id(binary_sensor.BinarySensor),
         cv.Required(CONF_ACTUAL_OUTPUT_BINARY_SENSOR_ID): cv.use_id(binary_sensor.BinarySensor),
         cv.Required(CONF_STATUS_TEXT_SENSOR_ID): cv.use_id(text_sensor.TextSensor),
-        cv.Required(CONF_FIRMWARE_VERSION_TEXT_SENSOR_ID): cv.use_id(text_sensor.TextSensor),
-        cv.Required(CONF_HARDWARE_VERSION_SENSOR_ID): cv.use_id(sensor.Sensor),
+        cv.Optional(CONF_FIRMWARE_VERSION_TEXT_SENSOR_ID): cv.use_id(text_sensor.TextSensor),
+        cv.Optional(CONF_HARDWARE_VERSION_SENSOR_ID): cv.use_id(sensor.Sensor),
         cv.Optional(CONF_MANUFACTURER_TEXT_SENSOR_ID): cv.use_id(text_sensor.TextSensor),
         cv.Optional(CONF_COMPANY_ID_TEXT_SENSOR_ID): cv.use_id(text_sensor.TextSensor),
         cv.Optional(CONF_PRODUCT_ID_TEXT_SENSOR_ID): cv.use_id(text_sensor.TextSensor),
@@ -84,8 +84,6 @@ async def to_code(config):
     ready = await cg.get_variable(config[CONF_READY_BINARY_SENSOR_ID])
     actual_output = await cg.get_variable(config[CONF_ACTUAL_OUTPUT_BINARY_SENSOR_ID])
     status = await cg.get_variable(config[CONF_STATUS_TEXT_SENSOR_ID])
-    firmware_version = await cg.get_variable(config[CONF_FIRMWARE_VERSION_TEXT_SENSOR_ID])
-    hardware_version = await cg.get_variable(config[CONF_HARDWARE_VERSION_SENSOR_ID])
     cg.add(var.set_lux_sensor(lux))
     cg.add(var.set_rssi_sensor(rssi))
     cg.add(var.set_threshold_number(threshold))
@@ -93,11 +91,16 @@ async def to_code(config):
     cg.add(var.set_ready_binary_sensor(ready))
     cg.add(var.set_actual_output_binary_sensor(actual_output))
     cg.add(var.set_status_text_sensor(status))
-    cg.add(var.set_firmware_version_text_sensor(firmware_version))
-    cg.add(var.set_hardware_version_sensor(hardware_version))
-    # These three are optional: the primary device's manufacturer, company ID and
-    # product ID are not published to Home Assistant, so the sensors are normally
+    # These are optional: the primary device's firmware, hardware revision,
+    # manufacturer, company ID and product ID are not published to Home Assistant
+    # (the integration shows them for every device), so the sensors are normally
     # not configured.
+    if CONF_FIRMWARE_VERSION_TEXT_SENSOR_ID in config:
+        firmware_version = await cg.get_variable(config[CONF_FIRMWARE_VERSION_TEXT_SENSOR_ID])
+        cg.add(var.set_firmware_version_text_sensor(firmware_version))
+    if CONF_HARDWARE_VERSION_SENSOR_ID in config:
+        hardware_version = await cg.get_variable(config[CONF_HARDWARE_VERSION_SENSOR_ID])
+        cg.add(var.set_hardware_version_sensor(hardware_version))
     if CONF_MANUFACTURER_TEXT_SENSOR_ID in config:
         manufacturer = await cg.get_variable(config[CONF_MANUFACTURER_TEXT_SENSOR_ID])
         cg.add(var.set_manufacturer_text_sensor(manufacturer))

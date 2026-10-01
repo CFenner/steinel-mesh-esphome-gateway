@@ -124,8 +124,6 @@ nightmatiq_mesh:
   ready_binary_sensor_id: nightmatiq_mesh_ready
   actual_output_binary_sensor_id: nightmatiq_actual_output
   status_text_sensor_id: nightmatiq_status
-  firmware_version_text_sensor_id: nightmatiq_firmware_version
-  hardware_version_sensor_id: nightmatiq_hardware_version
   ota_id: nightmatiq_ota
   web_username: "${factory_username}"
   web_password: "${factory_password}"
@@ -190,13 +188,6 @@ sensor:
     device_class: signal_strength
     state_class: measurement
     unit_of_measurement: dBm
-    accuracy_decimals: 0
-    update_interval: never
-    entity_category: diagnostic
-
-  - platform: template
-    id: nightmatiq_hardware_version
-    name: "Primary Device Hardware Revision"
     accuracy_decimals: 0
     update_interval: never
     entity_category: diagnostic
@@ -316,10 +307,4 @@ text_sensor:
     id: nightmatiq_status
     name: "Status"
     icon: mdi:bluetooth-connect
-    entity_category: diagnostic
-
-  - platform: template
-    id: nightmatiq_firmware_version
-    name: "Primary Device Firmware"
-    icon: mdi:chip
     entity_category: diagnostic
