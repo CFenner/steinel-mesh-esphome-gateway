@@ -10,8 +10,6 @@
 #include "esphome/components/binary_sensor/binary_sensor.h"
 #include "esphome/components/esp32_ble/ble.h"
 #include "esphome/components/esphome/ota/ota_esphome.h"
-#include "esphome/components/number/number.h"
-#include "esphome/components/select/select.h"
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/text_sensor/text_sensor.h"
 #include "esphome/components/web_server_base/web_server_base.h"
@@ -29,33 +27,14 @@
 namespace esphome {
 namespace steinel_mesh {
 
-class NightmatiqMesh final : public PollingComponent, public AsyncWebHandler {
+class NightmatiqMesh final : public Component, public AsyncWebHandler {
  public:
   NightmatiqMesh(web_server_base::WebServerBase *base, ESPHomeOTAComponent *ota)
       : base_(base), ota_(ota) {}
 
-  void set_lux_sensor(sensor::Sensor *value) { this->lux_sensor_ = value; }
   void set_rssi_sensor(sensor::Sensor *value) { this->rssi_sensor_ = value; }
-  void set_threshold_number(number::Number *value) { this->threshold_number_ = value; }
-  void set_mode_select(select::Select *value) { this->mode_select_ = value; }
   void set_ready_binary_sensor(binary_sensor::BinarySensor *value) { this->ready_binary_sensor_ = value; }
-  void set_actual_output_binary_sensor(binary_sensor::BinarySensor *value) {
-    this->actual_output_binary_sensor_ = value;
-  }
   void set_status_text_sensor(text_sensor::TextSensor *value) { this->status_text_sensor_ = value; }
-  void set_firmware_version_text_sensor(text_sensor::TextSensor *value) {
-    this->firmware_version_text_sensor_ = value;
-  }
-  void set_hardware_version_sensor(sensor::Sensor *value) { this->hardware_version_sensor_ = value; }
-  void set_manufacturer_text_sensor(text_sensor::TextSensor *value) {
-    this->manufacturer_text_sensor_ = value;
-  }
-  void set_company_id_text_sensor(text_sensor::TextSensor *value) {
-    this->company_id_text_sensor_ = value;
-  }
-  void set_product_id_text_sensor(text_sensor::TextSensor *value) {
-    this->product_id_text_sensor_ = value;
-  }
   void set_web_credentials(const std::string &username, const std::string &password) {
     this->web_username_ = username;
     this->web_password_ = password;
@@ -63,11 +42,8 @@ class NightmatiqMesh final : public PollingComponent, public AsyncWebHandler {
 
   void setup() override;
   void loop() override;
-  void update() override;
   void dump_config() override;
   float get_setup_priority() const override;
-  void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param);
-  void gap_scan_event_handler(const esp32_ble::BLEScanResult &scan_result);
 
   bool canHandle(AsyncWebServerRequest *request) const override;
   void handleRequest(AsyncWebServerRequest *request) override;
@@ -75,8 +51,6 @@ class NightmatiqMesh final : public PollingComponent, public AsyncWebHandler {
                   size_t total) override;
   bool isRequestHandlerTrivial() const override { return false; }
 
-  void set_threshold(float lux);
-  void set_mode(const std::string &mode);
   void request_refresh();
   bool mesh_mode_enabled() const { return this->mesh_mode_enabled_; }
   // Traffic counters, published as diagnostic entities.
@@ -137,11 +111,9 @@ class NightmatiqMesh final : public PollingComponent, public AsyncWebHandler {
   // Set only after a Secure Network Beacon changes the IV Index or an
   // authenticated Access response proves that the stored value is usable.
   static constexpr uint16_t FLAG_IV_INDEX_CONFIRMED = 0x0004;
-  static constexpr uint32_t ACTUAL_OUTPUT_STALE_MS = 5UL * 60UL * 1000UL;
   // A mode SET is intentionally unacknowledged for immediate lamp control.
   // Confirm its physical result several times before returning to the normal
   // Retry within the 30-second polling interval after an unanswered GET.
-  static constexpr uint8_t OUTPUT_CONFIRMATION_MAX_ATTEMPTS = 5;
 
   struct StoredConfig {
     uint32_t magic{CONFIG_MAGIC};
@@ -221,20 +193,6 @@ class NightmatiqMesh final : public PollingComponent, public AsyncWebHandler {
     std::array<uint8_t, 32> sha256{};
   };
 
-  struct StoredAdvertisedIdentity {
-    uint32_t magic{ADVERTISED_IDENTITY_MAGIC};
-    uint16_t version{ADVERTISED_IDENTITY_VERSION};
-    uint16_t product_id{0};
-    uint8_t firmware_major{0};
-    uint8_t firmware_minor{0};
-    uint8_t firmware_patch{0};
-    uint8_t bootloader_version{0};
-    uint8_t hardware_version{0};
-    uint8_t reserved{0};
-    uint16_t firmware_hash{0};
-    uint16_t composition_version_id{0};
-  };
-
   // Bit flags describing which Bluetooth Mesh SIG server models an element
   // exposes. They are derived from the backup and are what a generic client
   // needs to decide how a node can be controlled.
@@ -268,18 +226,8 @@ class NightmatiqMesh final : public PollingComponent, public AsyncWebHandler {
 
   enum class AccessOperation : uint8_t {
     NONE,
-    SENSOR_GET,
-    REVISION_CATALOG_GET,
-    THRESHOLD_GET,
-    LC_MODE_GET,
-    ONOFF_GET,
-    SCENE_GET,
-    THRESHOLD_SET,
-    LC_MODE_SET,
-    ONOFF_SET,
-    SCENE_RECALL,
-    // Requests issued by the generic multi-node engine. They share the single
-    // access slot with the NightmatIQ logic so only one request is ever active.
+    // Requests issued by the node engine. They share the single access slot, so
+    // only one request is ever active.
     NODE_ONOFF_GET,
     NODE_LIGHTNESS_GET,
     NODE_LC_MODE_GET,
@@ -345,16 +293,6 @@ class NightmatiqMesh final : public PollingComponent, public AsyncWebHandler {
     uint8_t sensor_count{0};
     std::array<NodeSensorValue, NODE_MAX_SENSOR_VALUES> sensors{};
   };
-  enum class ControlKind : uint8_t { NONE, MODE, THRESHOLD };
-  enum class ControlStep : uint8_t {
-    IDLE,
-    MODE_SEND_LC,
-    MODE_SEND_ACTION,
-    MODE_REPEAT_LC,
-    MODE_REPEAT_ACTION,
-    THRESHOLD_SEND_SET,
-    THRESHOLD_WAIT_SET,
-  };
   struct BackupBody;
   struct ImportTaskArgs;
   struct AutoUpdateContext;
@@ -364,10 +302,6 @@ class NightmatiqMesh final : public PollingComponent, public AsyncWebHandler {
   bool deinitialize_mesh_(bool erase_flash);
   bool restore_target_node_();
   void advance_mesh_start_();
-  void begin_identity_scan_();
-  void advance_identity_scan_();
-  bool capture_advertised_identity_(const uint8_t *data, size_t length, int16_t rssi);
-  void persist_pending_advertised_identity_();
   void advance_mesh_remove_();
   void advance_factory_reset_();
   void monitor_iv_index_();
@@ -393,9 +327,6 @@ class NightmatiqMesh final : public PollingComponent, public AsyncWebHandler {
                            esp_ble_mesh_sensor_client_cb_param_t *param);
   void node_request_failed_();
   void note_node_response_(const esp_ble_mesh_msg_ctx_t &context);
-  // True while any of the primary device's light entities is published to Home
-  // Assistant. Only then is the old NightmatIQ-only poll still needed.
-  bool main_light_entities_published_() const;
   void handle_api_node_(AsyncWebServerRequest *request);
   static esp_ble_mesh_model_t *config_model_();
   static esp_ble_mesh_model_t *onoff_model_();
@@ -433,13 +364,6 @@ class NightmatiqMesh final : public PollingComponent, public AsyncWebHandler {
   void persist_address_confirmation_();
   bool load_cached_iv_index_(const std::array<uint8_t, 16> &mesh_uuid, uint32_t &iv_index);
   void remember_iv_index_(const StoredConfig &config);
-  bool load_advertised_identity_();
-  bool save_advertised_identity_(const StoredAdvertisedIdentity &identity);
-  void clear_advertised_identity_();
-  bool advertised_identity_current_() const;
-  bool resolve_firmware_version_(uint8_t &major, uint8_t &minor, uint8_t &patch) const;
-  bool parse_scan_result_(const esp32_ble::BLEScanResult &scan_result);
-  void finish_identity_scan_();
   bool save_config_(const StoredConfig &config);
   bool save_device_key_(const std::array<uint8_t, 16> &device_key);
   bool save_enabled_(bool enabled);
@@ -459,8 +383,6 @@ class NightmatiqMesh final : public PollingComponent, public AsyncWebHandler {
   void handle_disable_(AsyncWebServerRequest *request);
   void handle_remove_(AsyncWebServerRequest *request);
   void handle_factory_reset_(AsyncWebServerRequest *request);
-  void handle_mode_(AsyncWebServerRequest *request);
-  void handle_threshold_(AsyncWebServerRequest *request);
   void handle_refresh_(AsyncWebServerRequest *request);
   void handle_password_(AsyncWebServerRequest *request);
   void handle_wifi_(AsyncWebServerRequest *request);
@@ -479,30 +401,11 @@ class NightmatiqMesh final : public PollingComponent, public AsyncWebHandler {
   bool complete_access_operation_(uint32_t opcode, bool success);
   void expire_access_operation_(uint32_t now);
   void record_mesh_rssi_(const esp_ble_mesh_msg_ctx_t &context);
-  bool control_request_pending_() const;
-  void start_next_control_(uint32_t now);
-  void advance_control_(uint32_t now);
-  void retry_or_finish_control_(bool success, uint32_t now);
-  void finish_control_(bool success, uint32_t now);
   void bind_model_(uint16_t model_id);
   void keys_bound_();
   void mark_ready_();
   void publish_pending_();
-  void publish_mode_from_observed_();
-  void record_actual_output_(bool on);
-  void force_actual_output_unavailable_();
 
-  bool send_sensor_get_();
-  bool send_device_revision_catalog_get_();
-  bool send_threshold_get_();
-  bool send_lc_mode_get_();
-  bool send_onoff_get_();
-  bool send_scene_get_();
-  bool send_composition_get_();
-  bool send_threshold_set_(uint32_t centilux);
-  bool send_lc_mode_set_(bool enabled);
-  bool send_onoff_set_(bool on);
-  bool send_scene_recall_();
   uint8_t next_tid_();
 
   static NightmatiqMesh *instance_;
@@ -515,7 +418,6 @@ class NightmatiqMesh final : public PollingComponent, public AsyncWebHandler {
   ESPPreferenceObject address_policy_preference_;
   ESPPreferenceObject address_confirmation_preference_;
   ESPPreferenceObject iv_cache_preference_;
-  ESPPreferenceObject advertised_identity_preference_;
   ESPPreferenceObject admin_credentials_preference_;
   ESPPreferenceObject auto_update_preference_;
   ESPPreferenceObject node_table_preference_;
@@ -541,11 +443,9 @@ class NightmatiqMesh final : public PollingComponent, public AsyncWebHandler {
   bool node_inflight_valid_{false};
   uint32_t node_next_action_at_{0};
   uint32_t node_next_pass_at_{0};
-  bool nightmatiq_poll_deferred_{false};
   BackupBody *import_body_{nullptr};
   std::string import_error_;
   int import_error_status_{0};
-  std::atomic<bool> import_active_{false};
   StoredConfig config_{};
   std::array<uint8_t, 16> device_key_{};
   bool device_key_valid_{false};
@@ -565,43 +465,14 @@ class NightmatiqMesh final : public PollingComponent, public AsyncWebHandler {
   uint32_t factory_reset_at_{0};
   uint32_t mesh_start_not_before_{0};
   uint32_t mesh_start_deadline_{0};
-  std::atomic<bool> identity_scan_pending_{false};
-  std::atomic<bool> identity_found_this_boot_{false};
-  bool identity_scan_started_{false};
-  enum class IdentityScanPhase : uint8_t {
-    WAIT_FOR_BLE,
-    WAIT_FOR_RANDOM_ADDRESS,
-    WAIT_FOR_SCAN_PARAMS,
-    WAIT_FOR_SCAN_START,
-    RUNNING,
-    WAIT_FOR_SCAN_STOP,
-  };
-  IdentityScanPhase identity_scan_phase_{IdentityScanPhase::WAIT_FOR_BLE};
-  esp_ble_scan_params_t identity_scan_params_{};
-  std::atomic<bool> identity_scan_params_ready_{false};
-  std::atomic<bool> identity_scan_start_ready_{false};
-  std::atomic<bool> identity_scan_stop_ready_{false};
-  std::atomic<bool> identity_scan_command_error_{false};
-  uint32_t identity_scan_action_at_{0};
-  uint32_t identity_scan_deadline_{0};
-  std::atomic<bool> advertised_identity_save_pending_{false};
   uint32_t iv_index_check_at_{0};
   bool keys_bound_pending_{false};
   uint32_t keys_bound_at_{0};
   uint8_t tid_{0};
 
-  sensor::Sensor *lux_sensor_{nullptr};
   sensor::Sensor *rssi_sensor_{nullptr};
-  number::Number *threshold_number_{nullptr};
-  select::Select *mode_select_{nullptr};
   binary_sensor::BinarySensor *ready_binary_sensor_{nullptr};
-  binary_sensor::BinarySensor *actual_output_binary_sensor_{nullptr};
   text_sensor::TextSensor *status_text_sensor_{nullptr};
-  text_sensor::TextSensor *firmware_version_text_sensor_{nullptr};
-  sensor::Sensor *hardware_version_sensor_{nullptr};
-  text_sensor::TextSensor *manufacturer_text_sensor_{nullptr};
-  text_sensor::TextSensor *company_id_text_sensor_{nullptr};
-  text_sensor::TextSensor *product_id_text_sensor_{nullptr};
 
   std::string web_username_;
   std::string web_password_;
@@ -628,24 +499,6 @@ class NightmatiqMesh final : public PollingComponent, public AsyncWebHandler {
   std::atomic<bool> ready_publish_pending_{false};
   std::atomic<bool> web_refresh_pending_{false};
   std::atomic<bool> status_publish_pending_{false};
-  std::atomic<bool> lux_publish_pending_{false};
-  std::atomic<uint32_t> pending_lux_centilux_{0};
-  std::atomic<bool> threshold_publish_pending_{false};
-  std::atomic<bool> threshold_invalidate_pending_{false};
-  std::atomic<bool> threshold_received_{false};
-  std::atomic<uint32_t> pending_threshold_centilux_{0};
-  std::atomic<uint32_t> observed_threshold_centilux_{0};
-  std::atomic<uint32_t> threshold_response_sequence_{0};
-  std::atomic<int8_t> observed_lc_mode_{-1};
-  std::atomic<uint32_t> lc_mode_response_sequence_{0};
-  std::atomic<int8_t> observed_onoff_{-1};
-  std::atomic<uint32_t> onoff_response_sequence_{0};
-  std::atomic<bool> actual_output_publish_pending_{false};
-  std::atomic<bool> actual_output_invalidate_pending_{false};
-  std::atomic<bool> actual_output_forced_unavailable_{true};
-  std::atomic<uint32_t> actual_output_last_response_at_{0};
-  bool actual_output_available_{false};
-  std::atomic<int8_t> mode_publish_pending_{-1};
   std::atomic<uint32_t> mesh_tx_attempts_{0};
   std::atomic<uint32_t> mesh_tx_accepted_{0};
   std::atomic<uint32_t> mesh_tx_errors_{0};
@@ -656,45 +509,6 @@ class NightmatiqMesh final : public PollingComponent, public AsyncWebHandler {
   std::atomic<uint32_t> last_mesh_rssi_at_{0};
   std::atomic<bool> mesh_rssi_received_{false};
   std::atomic<bool> mesh_rssi_publish_pending_{false};
-  std::atomic<uint32_t> mesh_generic_rx_{0};
-  std::atomic<uint32_t> mesh_sensor_rx_{0};
-  std::atomic<uint32_t> mesh_light_rx_{0};
-  std::atomic<uint32_t> mesh_scene_rx_{0};
-  std::atomic<uint32_t> mesh_generic_timeouts_{0};
-  std::atomic<uint32_t> mesh_sensor_timeouts_{0};
-  std::atomic<uint32_t> mesh_light_timeouts_{0};
-  std::atomic<uint32_t> mesh_scene_timeouts_{0};
-  std::atomic<bool> lux_received_{false};
-  std::atomic<bool> composition_query_pending_{false};
-  std::atomic<bool> composition_query_in_flight_{false};
-  std::atomic<uint32_t> composition_query_at_{0};
-  std::atomic<uint32_t> composition_query_attempts_{0};
-  std::atomic<uint32_t> composition_query_failures_{0};
-  std::atomic<uint32_t> composition_query_deadline_{0};
-  std::atomic<uint32_t> composition_responses_{0};
-  std::atomic<uint32_t> composition_timeouts_{0};
-  std::atomic<int32_t> composition_last_event_{-1};
-  std::atomic<int32_t> composition_last_error_{0};
-  std::atomic<uint32_t> composition_last_opcode_{0};
-  std::atomic<bool> composition_received_{false};
-  std::atomic<uint16_t> live_company_id_{0};
-  std::atomic<uint16_t> live_product_id_{0};
-  std::atomic<uint16_t> live_version_id_{0};
-  std::atomic<int16_t> live_firmware_revision_{-1};
-  std::atomic<int16_t> live_hardware_revision_{-1};
-  std::atomic<bool> revision_catalog_in_flight_{false};
-  std::atomic<bool> advertised_identity_valid_{false};
-  std::atomic<bool> advertised_identity_fresh_{false};
-  std::atomic<bool> advertised_identity_publish_pending_{false};
-  std::atomic<uint16_t> advertised_product_id_{0};
-  std::atomic<uint8_t> advertised_firmware_major_{0};
-  std::atomic<uint8_t> advertised_firmware_minor_{0};
-  std::atomic<uint8_t> advertised_firmware_patch_{0};
-  std::atomic<uint8_t> advertised_bootloader_version_{0};
-  std::atomic<uint8_t> advertised_hardware_version_{0};
-  std::atomic<uint16_t> advertised_firmware_hash_{0};
-  std::atomic<uint16_t> advertised_composition_version_id_{0};
-  std::atomic<int16_t> advertised_rssi_{0};
 
   std::atomic<AccessOperation> access_operation_{AccessOperation::NONE};
   std::atomic<uint32_t> access_opcode_{0};
@@ -702,36 +516,11 @@ class NightmatiqMesh final : public PollingComponent, public AsyncWebHandler {
   std::atomic<AccessOperation> access_last_completed_{AccessOperation::NONE};
   std::atomic<bool> access_last_success_{false};
 
-  std::atomic<int8_t> requested_mode_{-1};
-  std::atomic<uint32_t> mode_request_sequence_{0};
-  std::atomic<bool> mode_override_pending_{false};
-  std::atomic<uint32_t> requested_threshold_centilux_{0};
-  std::atomic<uint32_t> threshold_request_sequence_{0};
-  std::atomic<bool> threshold_override_pending_{false};
-  uint32_t handled_mode_request_sequence_{0};
-  uint32_t handled_threshold_request_sequence_{0};
-  ControlKind control_kind_{ControlKind::NONE};
-  ControlStep control_step_{ControlStep::IDLE};
-  uint8_t control_attempt_{0};
-  uint8_t control_tid_{0};
-  uint32_t control_action_at_{0};
-  uint32_t control_response_sequence_{0};
-  uint32_t control_previous_threshold_centilux_{0};
-  std::atomic<uint32_t> mode_confirmation_deadline_{0};
 
   // ESP-IDF deep-copies the Light LC SET structure but not the property-value
   // bytes referenced by it. Keep both objects alive until the acknowledged
   // transaction completes; a stack buffer here corrupts the written lux value.
-  std::array<uint8_t, 3> threshold_set_storage_{};
-  net_buf_simple threshold_set_buffer_{};
 
-  uint8_t poll_stage_{0};
-  uint32_t poll_stage_at_{0};
-  uint32_t poll_sensor_rx_start_{0};
-  uint32_t poll_generic_rx_start_{0};
-  bool output_confirmation_pending_{false};
-  uint8_t output_confirmation_attempts_{0};
-  bool initial_poll_started_{false};
 };
 
 }  // namespace steinel_mesh

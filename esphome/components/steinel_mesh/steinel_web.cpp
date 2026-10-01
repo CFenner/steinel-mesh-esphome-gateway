@@ -1053,14 +1053,6 @@ void NightmatiqMesh::clear_config_() {
   this->device_key_preference_.save(&empty_key);
   this->device_key_.fill(0);
   this->device_key_valid_ = false;
-  this->clear_advertised_identity_();
-  this->composition_received_.store(false);
-  this->live_company_id_.store(0);
-  this->live_product_id_.store(0);
-  this->live_version_id_.store(0);
-  this->live_firmware_revision_.store(-1);
-  this->live_hardware_revision_.store(-1);
-  this->force_actual_output_unavailable_();
   this->configured_ = false;
   this->mesh_mode_enabled_ = false;
   this->mesh_started_ = false;
@@ -1430,7 +1422,6 @@ bool NightmatiqMesh::canHandle(AsyncWebServerRequest *request) const {
   return request->method() == HTTP_POST &&
          (url == "/steinel/import" || url == "/steinel/enable" ||
           url == "/steinel/disable" || url == "/steinel/remove" ||
-          url == "/steinel/mode" || url == "/steinel/threshold" ||
           url == "/steinel/refresh" || url == "/steinel/password" ||
           url == "/steinel/wifi" || url == "/steinel/update" ||
           url == "/steinel/factory-reset");
@@ -1449,8 +1440,6 @@ void NightmatiqMesh::handleRequest(AsyncWebServerRequest *request) {
   if (url == "/steinel/enable") return this->handle_enable_(request);
   if (url == "/steinel/disable") return this->handle_disable_(request);
   if (url == "/steinel/remove") return this->handle_remove_(request);
-  if (url == "/steinel/mode") return this->handle_mode_(request);
-  if (url == "/steinel/threshold") return this->handle_threshold_(request);
   if (url == "/steinel/refresh") return this->handle_refresh_(request);
   if (url == "/steinel/password") return this->handle_password_(request);
   if (url == "/steinel/wifi") return this->handle_wifi_(request);
@@ -1484,8 +1473,6 @@ void NightmatiqMesh::handle_status_(AsyncWebServerRequest *request) {
   body.append(this->import_busy_.load() || this->auto_update_running_.load() ? "true" : "false");
   body.append(",\"mesh_ready\":");
   body.append(this->mesh_ready_.load() ? "true" : "false");
-  body.append(",\"composition_received\":");
-  body.append(this->composition_received_.load() ? "true" : "false");
   body.append(",\"runtime_mode\":\"");
   body.append(this->auto_update_mode_ ? "Firmware Update" :
               this->mesh_mode_enabled_ ? "Bluetooth Mesh" : "Setup");
@@ -1540,65 +1527,8 @@ void NightmatiqMesh::handle_status_(AsyncWebServerRequest *request) {
 #else
   body.append(",\"extended_diagnostics\":false");
 #endif
-  body.append(",\"lux_received\":");
-  body.append(this->lux_received_.load() ? "true" : "false");
-  body.number(",\"last_lux_centilux\":", this->pending_lux_centilux_.load());
-  body.append(",\"threshold_received\":");
-  body.append(this->threshold_received_.load() ? "true" : "false");
-  body.number(",\"threshold_centilux\":", this->pending_threshold_centilux_.load());
-  body.append(",\"actual_output_known\":");
-  body.append(this->observed_onoff_.load() >= 0 ? "true" : "false");
-  body.append(",\"actual_output_on\":");
-  body.append(this->observed_onoff_.load() > 0 ? "true" : "false");
-  int8_t current_mode = -1;
-  if (this->mode_override_pending_.load()) {
-    current_mode = this->requested_mode_.load();
-  } else if (this->observed_lc_mode_.load() == 1) {
-    current_mode = 0;
-  } else if (this->observed_lc_mode_.load() == 0 && this->observed_onoff_.load() >= 0) {
-    current_mode = this->observed_onoff_.load() > 0 ? 1 : 2;
-  }
-  body.append(",\"mode_known\":");
-  body.append(current_mode >= 0 ? "true" : "false");
-  body.append(",\"mode\":\"");
-  if (current_mode == 0)
-    body.append("Auto");
-  else if (current_mode == 1)
-    body.append("Always On");
-  else if (current_mode == 2)
-    body.append("Always Off");
-  body.append("\"");
   body.append(",\"iv_index_confirmed\":");
   body.append(this->live_iv_index_confirmed_.load() ? "true" : "false");
-  if (this->composition_received_.load()) {
-    char identity[80];
-    const int length = std::snprintf(identity, sizeof(identity),
-                                     ",\"company_id\":\"%04x\",\"product_id\":\"%04x\"",
-                                     this->live_company_id_.load(), this->live_product_id_.load());
-    if (length > 0 && static_cast<size_t>(length) < sizeof(identity))
-      body.append(std::string_view(identity, static_cast<size_t>(length)));
-  }
-  uint8_t firmware_major = 0;
-  uint8_t firmware_minor = 0;
-  uint8_t firmware_patch = 0;
-  const bool firmware_known =
-      this->resolve_firmware_version_(firmware_major, firmware_minor, firmware_patch);
-  body.append(",\"firmware_version_known\":");
-  body.append(firmware_known ? "true" : "false");
-  body.append(",\"firmware_version\":\"");
-  if (firmware_known) {
-    char firmware[16];
-    const int length = std::snprintf(firmware, sizeof(firmware), "%u.%u.%u",
-                                     firmware_major, firmware_minor, firmware_patch);
-    if (length > 0 && static_cast<size_t>(length) < sizeof(firmware))
-      body.append(std::string_view(firmware, static_cast<size_t>(length)));
-  }
-  body.append("\"");
-  const bool hardware_known = this->advertised_identity_current_();
-  const uint8_t hardware = this->advertised_hardware_version_.load();
-  body.append(",\"hardware_version_known\":");
-  body.append(hardware_known ? "true" : "false");
-  body.number(",\"hardware_version\":", hardware);
   if (this->configured_) {
     char values[96];
     std::snprintf(values, sizeof(values),
@@ -1613,7 +1543,7 @@ void NightmatiqMesh::handle_status_(AsyncWebServerRequest *request) {
   }
   body.append("}");
   if (!body.finish())
-    ESP_LOGW(WEB_TAG, "Could not send NightmatIQ status response");
+    ESP_LOGW(WEB_TAG, "Could not send the status response");
 }
 
 void NightmatiqMesh::handle_nodes_(AsyncWebServerRequest *request, bool with_state) {
@@ -1908,7 +1838,6 @@ void NightmatiqMesh::handle_disable_(AsyncWebServerRequest *request) {
     return send_json_(request, 409, "{\"message\":\"Configuration removal is already in progress\"}");
   if (!this->mesh_mode_enabled_) return send_json_(request, 200, "{\"message\":\"Bluetooth Mesh is already disabled\"}");
   if (!this->save_enabled_(false)) return send_json_(request, 500, "{\"message\":\"Could not save the disabled state\"}");
-  this->force_actual_output_unavailable_();
   this->set_status_("Bluetooth Mesh disabled; rebooting into setup mode");
   this->reboot_at_ = millis() + 1500;
   this->reboot_pending_.store(true);
@@ -1917,7 +1846,6 @@ void NightmatiqMesh::handle_disable_(AsyncWebServerRequest *request) {
 
 void NightmatiqMesh::handle_remove_(AsyncWebServerRequest *request) {
   if (this->import_busy_.load()) return send_json_(request, 409, "{\"message\":\"Backup import in progress\"}");
-  this->force_actual_output_unavailable_();
   if (this->configured_ && this->mesh_started_) {
     if (this->mesh_remove_pending_.exchange(true))
       return send_json_(request, 200, "{\"message\":\"Configuration removal is already in progress\"}");
@@ -1957,40 +1885,13 @@ void NightmatiqMesh::handle_factory_reset_(AsyncWebServerRequest *request) {
   send_json_(request, 200,
              "{\"message\":\"Factory reset scheduled; reconnect to the gateway access point\"}");
 }
-
-void NightmatiqMesh::handle_mode_(AsyncWebServerRequest *request) {
-  if (!this->configured_ || !this->mesh_mode_enabled_ || !this->mesh_ready_.load())
-    return send_json_(request, 409, "{\"message\":\"Bluetooth Mesh is not ready\"}");
-  if (this->import_busy_.load() || this->reboot_pending_.load())
-    return send_json_(request, 409, "{\"message\":\"Gateway is busy\"}");
-  const std::string mode = request->arg("mode").c_str();
-  if (mode != "Auto" && mode != "Always On" && mode != "Always Off")
-    return send_json_(request, 400, "{\"message\":\"Invalid NightmatIQ mode\"}");
-  this->set_mode(mode);
-  // web_server_idf maps unsupported status codes (including 202) to 500.
-  // HTTP 200 confirms that the asynchronous local Mesh operation started.
-  send_json_(request, 200, "{\"message\":\"Changing NightmatIQ mode\"}");
-}
-
-void NightmatiqMesh::handle_threshold_(AsyncWebServerRequest *request) {
-  if (!this->configured_ || !this->mesh_mode_enabled_ || !this->mesh_ready_.load())
-    return send_json_(request, 409, "{\"message\":\"Bluetooth Mesh is not ready\"}");
-  if (this->import_busy_.load() || this->reboot_pending_.load())
-    return send_json_(request, 409, "{\"message\":\"Gateway is busy\"}");
-  uint32_t threshold = 0;
-  if (!parse_u32_(request->arg("value").c_str(), 1, 1500, threshold))
-    return send_json_(request, 400, "{\"message\":\"Threshold must be between 1 and 1500 lx\"}");
-  this->set_threshold(static_cast<float>(threshold));
-  send_json_(request, 200, "{\"message\":\"Changing twilight threshold\"}");
-}
-
 void NightmatiqMesh::handle_refresh_(AsyncWebServerRequest *request) {
   if (!this->configured_ || !this->mesh_mode_enabled_ || !this->mesh_ready_.load())
     return send_json_(request, 409, "{\"message\":\"Bluetooth Mesh is not ready\"}");
   if (this->import_busy_.load() || this->reboot_pending_.load())
     return send_json_(request, 409, "{\"message\":\"Gateway is busy\"}");
   this->web_refresh_pending_.store(true);
-  send_json_(request, 200, "{\"message\":\"Refreshing NightmatIQ state\"}");
+  send_json_(request, 200, "{\"message\":\"Refreshing all devices\"}");
 }
 
 void NightmatiqMesh::handle_password_(AsyncWebServerRequest *request) {

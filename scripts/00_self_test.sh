@@ -152,16 +152,6 @@ else:
             errors.append("generated NightmatIQ raw page size is stale")
 
 mesh = (root / "esphome/components/steinel_mesh/steinel_mesh.cpp").read_text(encoding="utf-8")
-for marker in (
-    "esp_ble_gap_set_rand_addr(random_address)",
-    "esp_ble_gap_set_scan_params(&this->identity_scan_params_)",
-    "esp_ble_gap_start_scanning(IDENTITY_SCAN_WINDOW_MS / 1000U)",
-    "ESP_BLE_MESH_MODEL_OP_COMPOSITION_DATA_GET",
-    "ESP_BLE_MESH_MODEL_OP_GEN_ONOFF_GET",
-):
-    if marker not in mesh:
-        errors.append(f"missing NightmatIQ source marker: {marker}")
-
 header_source = (root / "esphome/components/steinel_mesh/steinel_mesh.h").read_text(encoding="utf-8")
 web_source = (root / "esphome/components/steinel_mesh/steinel_web.cpp").read_text(encoding="utf-8")
 component_source = (root / "esphome/components/steinel_mesh/__init__.py").read_text(encoding="utf-8")
@@ -175,14 +165,11 @@ for source, marker in (
     (header_source, "ADMIN_PASSWORD_MIN_LENGTH = 8"),
     (header_source, "struct StoredAutoUpdate"),
     (header_source, "AUTO_UPDATE_URL_MAX_LENGTH = 255"),
-    (component_source, "esp32_ble.register_gap_event_handler(ble, var)"),
-    (component_source, "esp32_ble.register_gap_scan_event_handler(ble, var)"),
     (component_source, "ESPHomeOTAComponent"),
     (mesh, "advance_address_recovery_(now)"),
     (mesh, "reboot_after_confirming_firmware()"),
     (mesh, "esp_ota_mark_app_valid_cancel_rollback()"),
     (mesh, "current_address_confirmed_()"),
-    (mesh, "!this->identity_found_this_boot_.load()"),
     (web_source, "esp_read_mac(mac, ESP_MAC_WIFI_STA)"),
     (web_source, "address_policy.installation_nonce = esp_random()"),
     (web_source, "mesh_rx_messages_.load() == 0"),
@@ -196,7 +183,6 @@ for source, marker in (
     (component_source, 'CONF_RSSI_SENSOR_ID = "rssi_sensor_id"'),
     (component_source, "var.set_rssi_sensor(rssi)"),
     (config_source, 'friendly_name: "Steinel Mesh Gateway"'),
-    (config_source, 'main_light_internal: "true"'),
     (config_source, "platform: debug"),
     (config_source, "id(nightmatiq_gateway).mesh_tx_attempts()"),
     (config_source, "rssi_sensor_id: nightmatiq_rssi"),
@@ -204,9 +190,6 @@ for source, marker in (
     (config_source, "device_class: signal_strength"),
     (config_source, 'name: "Refresh"'),
     (config_source, "id(nightmatiq_gateway).request_refresh();"),
-    (config_source, "optimistic: true"),
-    (config_source, "restore_value: true"),
-    (config_source, 'initial_option: "Auto"'),
     (web_source, "mesh_last_rssi_dbm"),
     (web_source, "mesh_last_rssi_age_seconds"),
     (page_source, "Last RSSI"),
@@ -215,13 +198,9 @@ for source, marker in (
     (web_source, "api::global_api_server->teardown()"),
     (header_source, "web_refresh_pending_"),
     (mesh, "this->request_refresh()"),
-    (web_source, 'url == "/steinel/mode"'),
-    (web_source, 'url == "/steinel/threshold"'),
     (web_source, 'url == "/steinel/refresh"'),
     (web_source, 'url == "/steinel/password"'),
     (web_source, 'url == "/steinel/wifi"'),
-    (web_source, "handle_mode_"),
-    (web_source, "handle_threshold_"),
     (web_source, "handle_refresh_"),
     (web_source, "handle_password_"),
     (web_source, "handle_wifi_"),
@@ -253,10 +232,7 @@ for source, marker in (
     (mesh, "global_preferences->reset()"),
     (header_source, "factory_reset_pending_"),
     (web_source, r'\"factory_password\"'),
-    (web_source, r'\"mode_known\"'),
-    (web_source, 'send_json_(request, 200, "{\\\"message\\\":\\\"Changing NightmatIQ mode\\\"}")'),
-    (web_source, 'send_json_(request, 200, "{\\\"message\\\":\\\"Changing twilight threshold\\\"}")'),
-    (web_source, 'send_json_(request, 200, "{\\\"message\\\":\\\"Refreshing NightmatIQ state\\\"}")'),
+    (web_source, 'send_json_(request, 200, "{\\\"message\\\":\\\"Refreshing all devices\\\"}")'),
     (page_source, "Administrator access"),
     (page_source, "<h2>Administration"),
     (page_source, "Factory reset"),
@@ -352,12 +328,6 @@ for forbidden_source_marker in (
     if forbidden_source_marker in web_source:
         errors.append(f"obsolete Mesh address interface remains public: {forbidden_source_marker}")
 
-control_handlers = web_source.split("void NightmatiqMesh::handle_mode_", 1)[1].split(
-    "bool NightmatiqMesh::parse_backup_", 1
-)[0]
-if "send_json_(request, 202" in control_handlers:
-    errors.append("NightmatIQ web controls must use an HTTP status supported by web_server_idf")
-
 nodes_source = (root / "esphome/components/steinel_mesh/steinel_nodes.cpp").read_text(encoding="utf-8")
 if "send_json_(request, 202" in nodes_source:
     errors.append("node API must use an HTTP status supported by web_server_idf (200, 204, 400, 401, 404, 409, 422)")
@@ -376,7 +346,6 @@ for source, marker in (
     (nodes_source, "NodeRequestKind::SENSOR_DESCRIPTOR_GET"),
     (web_source, "firmware_version"),
     (web_source, "manufacturer_name_"),
-    (mesh, "main_light_entities_published_"),
     (web_source, "mac_text"),
     (nodes_source, "NodeRequestKind::THRESHOLD_SET"),
     (web_source, r'\"threshold\":'),
@@ -406,6 +375,26 @@ for forbidden_cloud_marker in (
 for forbidden_page_marker in ("/steinel/discover", "/steinel/install", "DOWNLOAD NETWORK LIST"):
     if forbidden_page_marker in page_source:
         errors.append(f"removed Steinel Cloud feature remains in GUI: {forbidden_page_marker}")
+
+# The single-device NightmatIQ code is gone: the node engine handles every device,
+# including the one the gateway was set up with.
+for forbidden_legacy_marker in (
+    "begin_identity_scan_",
+    "send_threshold_set_",
+    "advance_control_",
+    "main_light_entities_published_",
+    "composition_query_",
+    "nightmatiq_poll_deferred_",
+    "poll_stage_",
+    "handle_mode_",
+    "handle_threshold_",
+):
+    for label, source in (("firmware", web_source), ("header", header_source), ("mesh", mesh), ("nodes", nodes_source)):
+        if forbidden_legacy_marker in source:
+            errors.append(f"removed single-device code remains in {label}: {forbidden_legacy_marker}")
+for forbidden_config_marker in ("main_light_internal", "Primary Device", "lux_sensor_id", "mode_select_id"):
+    if forbidden_config_marker in config_source:
+        errors.append(f"removed single-device entity remains in the configuration: {forbidden_config_marker}")
 
 if errors:
     for error in errors:

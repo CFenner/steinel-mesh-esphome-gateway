@@ -39,10 +39,10 @@ The standard ESPHome integration exposes NightmatIQ directly as a single Home As
 ### Local Bluetooth Mesh integration
 
 - Imports a Steinel network backup (.json) from a local file, without a Steinel account.
-- Restores the network key, application key, IV Index and NightmatIQ node information.
-- Communicates directly with the NightmatIQ over Bluetooth Mesh.
-- Reads actual output state, illuminance, twilight threshold, firmware version, hardware revision and product identity.
-- Controls `Auto`, `Always On` and `Always Off` operating modes.
+- Restores the network key, application key, IV Index and the node information of every device.
+- Communicates directly with the devices over Bluetooth Mesh.
+- Reads each device's output state, brightness, illuminance, motion, twilight threshold, firmware version and product identity.
+- Switches lamps, sets their brightness and `Automatic mode`.
 - Changes the twilight threshold from `1` to `1500 lx`.
 
 ### All devices of the network
@@ -79,7 +79,7 @@ The standard ESPHome API publishes:
 - gateway diagnostics: uptime, last reset reason, free heap, largest free block and the Bluetooth Mesh traffic counters (transmissions, send errors, last send error, responses, timeouts);
 - a manual refresh action.
 
-The primary device's light entities (actual light output, illuminance, operating mode and twilight threshold) are hidden from Home Assistant by default, because the Home Assistant integration [HomeAssistant-Steinel-Mesh](https://github.com/CFenner/HomeAssistant-Steinel-Mesh) controls every device, including that one. While they are hidden, the gateway also skips its old NightmatIQ-only polling: the primary device is polled by the same engine as every other device. To publish them again (which also restores that polling), set `main_light_internal: "false"` in the substitutions of `esphome/steinel-c3.yaml` and rebuild.
+The gateway publishes no light entities of its own: the Home Assistant integration [HomeAssistant-Steinel-Mesh](https://github.com/CFenner/HomeAssistant-Steinel-Mesh) controls every device, including the one the gateway was set up with.
 
 Home Assistant displays all published entities under one device named **Steinel Mesh Gateway**.
 

@@ -6,11 +6,6 @@ substitutions:
   project_version: "0.1.0"
   factory_username: "admin"
   factory_password: "12345678"
-  # The primary device's light entities (light output, illuminance, twilight
-  # threshold, mode) are kept inside the firmware but hidden from Home Assistant:
-  # the Home Assistant integration controls every device, including that one.
-  # Set to "false" to publish them again.
-  main_light_internal: "true"
 
 esphome:
   name: "${name}"
@@ -116,17 +111,12 @@ external_components:
 steinel_mesh:
   id: nightmatiq_gateway
   extended_diagnostics: true
-  lux_sensor_id: nightmatiq_lux
   rssi_sensor_id: nightmatiq_rssi
-  threshold_number_id: nightmatiq_threshold
-  mode_select_id: nightmatiq_mode
   ready_binary_sensor_id: steinel_mesh_ready
-  actual_output_binary_sensor_id: nightmatiq_actual_output
   status_text_sensor_id: nightmatiq_status
   ota_id: nightmatiq_ota
   web_username: "${factory_username}"
   web_password: "${factory_password}"
-  update_interval: 30s
 
 logger:
   level: INFO
@@ -173,12 +163,6 @@ binary_sensor:
     id: steinel_mesh_ready
     name: "Mesh Ready"
     entity_category: diagnostic
-
-  - platform: template
-    id: nightmatiq_actual_output
-    name: "Primary Device Light Output"
-    internal: ${main_light_internal}
-    icon: mdi:lightbulb
 
 sensor:
   - platform: template
@@ -248,16 +232,6 @@ sensor:
     update_interval: 60s
     entity_category: diagnostic
 
-  - platform: template
-    id: nightmatiq_lux
-    name: "Primary Device Illuminance"
-    internal: ${main_light_internal}
-    device_class: illuminance
-    state_class: measurement
-    unit_of_measurement: lx
-    accuracy_decimals: 2
-    update_interval: never
-
 button:
   - platform: template
     name: "Refresh"
@@ -265,36 +239,6 @@ button:
     entity_category: diagnostic
     on_press:
       - lambda: 'id(nightmatiq_gateway).request_refresh();'
-
-number:
-  - platform: template
-    id: nightmatiq_threshold
-    name: "Primary Device Twilight Threshold"
-    internal: ${main_light_internal}
-    icon: mdi:brightness-6
-    unit_of_measurement: lx
-    min_value: 1
-    max_value: 1500
-    step: 1
-    mode: slider
-    set_action:
-      - lambda: 'id(nightmatiq_gateway).set_threshold(x);'
-
-select:
-  - platform: template
-    id: nightmatiq_mode
-    name: "Primary Device Mode"
-    internal: ${main_light_internal}
-    icon: mdi:theme-light-dark
-    optimistic: true
-    restore_value: true
-    initial_option: "Auto"
-    options:
-      - "Auto"
-      - "Always On"
-      - "Always Off"
-    set_action:
-      - lambda: 'id(nightmatiq_gateway).set_mode(x);'
 
 text_sensor:
   - platform: debug

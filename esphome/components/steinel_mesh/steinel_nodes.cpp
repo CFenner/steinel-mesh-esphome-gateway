@@ -1,10 +1,8 @@
 // Generic multi-node engine.
 //
-// The NightmatIQ logic in steinel_mesh.cpp drives exactly one node. This
-// file adds a small scheduler that reads and controls every node stored from the
-// imported backup (lamps, sensors) through standard SIG models. It shares the
-// single acknowledged-access slot with the NightmatIQ code, so at most one
-// request is ever in flight and neither side can disturb the other.
+// A small scheduler that reads and controls every node stored from the imported
+// backup (lamps, sensors) through standard SIG models. It uses the single
+// acknowledged-access slot, so at most one request is ever in flight.
 #include "steinel_mesh.h"
 
 #include <algorithm>
@@ -24,12 +22,11 @@ namespace esphome {
 namespace steinel_mesh {
 
 static const char *const NODE_TAG = "steinel_nodes";
-// Idle time after each request. It keeps the radio free for the NightmatIQ
-// control path and for Composition Data reads.
+// Idle time after each request, so the radio stays free for replies.
 static constexpr uint32_t NODE_REQUEST_GAP_MS = 350;
 static constexpr uint32_t NODE_COMMAND_GAP_MS = 150;
 static constexpr uint32_t NODE_PASS_INTERVAL_MS = 20000;
-// The first pass waits so the NightmatIQ identity and initial poll go first.
+// The first pass waits so the Mesh can settle after start-up.
 static constexpr uint32_t NODE_FIRST_PASS_DELAY_MS = 8000;
 // Light Control "ambient lux on" property, the twilight threshold. Values are
 // 24-bit illuminance in 0.01 lx; the API accepts whole lux from 1 to 1500.
@@ -325,7 +322,7 @@ bool NightmatiqMesh::send_node_request_(const NodeRequest &request) {
                                               esp_ble_mesh_light_client_set_state(&common, &set));
     }
     case NodeRequestKind::LC_MODE_SET: {
-      // Unacknowledged, like the NightmatIQ mode change: the lamp applies it
+      // Unacknowledged: the lamp applies it
       // immediately and the follow-up LC Mode Get confirms the result. It does
       // not use the access slot.
       esp_ble_mesh_light_client_set_state_t set{};
@@ -430,26 +427,10 @@ bool NightmatiqMesh::submit_node_command_(uint8_t node_index, int on, int bright
 void NightmatiqMesh::advance_node_engine_(uint32_t now) {
   if (!this->mesh_ready_.load()) return;
 
-  // The periodic NightmatIQ poll could not start because a node request held
-  // the access slot. Start it as soon as the slot is free, ahead of node work.
-  if (this->nightmatiq_poll_deferred_) {
-    if (this->access_operation_.load() == AccessOperation::NONE && this->poll_stage_ == 0 &&
-        this->control_kind_ == ControlKind::NONE && !this->control_request_pending_()) {
-      this->nightmatiq_poll_deferred_ = false;
-      this->poll_sensor_rx_start_ = this->mesh_sensor_rx_.load();
-      this->poll_generic_rx_start_ = this->mesh_generic_rx_.load();
-      this->poll_stage_ = 1;
-      this->poll_stage_at_ = now;
-    }
-    return;
-  }
-
   if (!this->node_table_valid_) return;
   if (this->node_next_pass_at_ == 0) this->node_next_pass_at_ = now + NODE_FIRST_PASS_DELAY_MS;
   if (static_cast<int32_t>(now - this->node_next_action_at_) < 0) return;
-  if (this->access_operation_.load() != AccessOperation::NONE || this->poll_stage_ != 0 ||
-      this->control_kind_ != ControlKind::NONE || this->control_request_pending_() ||
-      this->composition_query_in_flight_.load() || this->import_busy_.load() ||
+  if (this->access_operation_.load() != AccessOperation::NONE || this->import_busy_.load() ||
       this->auto_update_running_.load() || this->reboot_pending_.load())
     return;
   this->node_inflight_valid_ = false;
