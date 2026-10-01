@@ -1731,6 +1731,20 @@ void NightmatiqMesh::handle_nodes_(AsyncWebServerRequest *request, bool with_sta
         body.append("null");
       else
         body.number("", static_cast<uint32_t>(std::lround(runtime.threshold_centilux / 100.0)));
+      // Steinel packs the firmware version into the composition version ID.
+      char version_text[24];
+      body.append(",\"version_id\":");
+      if (runtime.version_id == 0) {
+        body.append("null,\"firmware_version\":null");
+      } else {
+        std::snprintf(version_text, sizeof(version_text), "\"0x%04X\"", runtime.version_id);
+        body.append(version_text);
+        std::snprintf(version_text, sizeof(version_text), ",\"firmware_version\":\"%u.%u.%u\"",
+                      static_cast<unsigned>(runtime.version_id >> 11),
+                      static_cast<unsigned>((runtime.version_id >> 6) & 0x1F),
+                      static_cast<unsigned>(runtime.version_id & 0x3F));
+        body.append(version_text);
+      }
       body.number(",\"failures\":", runtime.consecutive_failures);
       body.append(",\"sensors\":[");
       for (uint8_t sensor_index = 0; sensor_index < runtime.sensor_count; sensor_index++) {
@@ -1750,12 +1764,6 @@ void NightmatiqMesh::handle_nodes_(AsyncWebServerRequest *request, bool with_sta
         if (value.property == 0x004E && value.length >= 3) {
           const uint32_t centilux = value.raw[0] | (value.raw[1] << 8) | (value.raw[2] << 16);
           std::snprintf(text, sizeof(text), ",\"lux\":%.2f", centilux / 100.0);
-          body.append(text);
-        } else if (value.property == 0x000E && value.length >= 1) {
-          std::snprintf(text, sizeof(text), ",\"firmware_revision\":%u", static_cast<unsigned>(value.raw[0]));
-          body.append(text);
-        } else if (value.property == 0x0010 && value.length >= 1) {
-          std::snprintf(text, sizeof(text), ",\"hardware_revision\":%u", static_cast<unsigned>(value.raw[0]));
           body.append(text);
         } else if (value.property == 0x004D && value.length >= 1) {
           body.append(value.raw[0] != 0 ? ",\"presence\":true" : ",\"presence\":false");

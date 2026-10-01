@@ -288,6 +288,7 @@ class NightmatiqMesh final : public PollingComponent, public AsyncWebHandler {
     NODE_LIGHTNESS_SET,
     NODE_THRESHOLD_GET,
     NODE_THRESHOLD_SET,
+    NODE_COMPOSITION_GET,
   };
   static bool is_node_operation_(AccessOperation operation) {
     return operation >= AccessOperation::NODE_ONOFF_GET;
@@ -304,9 +305,9 @@ class NightmatiqMesh final : public PollingComponent, public AsyncWebHandler {
     LC_MODE_SET,
     THRESHOLD_GET,
     THRESHOLD_SET,
-    // Sensor Get for one property id (value), used to probe a device's firmware
-    // and hardware revision.
-    SENSOR_PROPERTY_GET,
+    // Configuration Composition Data Get (page 0), read with the node's device key.
+    // Its version ID is the device's firmware version.
+    COMPOSITION_GET,
   };
   struct NodeRequest {
     NodeRequestKind kind{NodeRequestKind::ONOFF_GET};
@@ -329,6 +330,10 @@ class NightmatiqMesh final : public PollingComponent, public AsyncWebHandler {
     int8_t lc_mode{-1};
     // Light Control "ambient lux on" threshold in 0.01 lx; -1 while unknown.
     int32_t threshold_centilux{-1};
+    // Composition version ID read from the device (0 while unknown). Steinel packs
+    // the firmware version into it: 5 bits major, 5 bits minor, 6 bits patch.
+    uint16_t version_id{0};
+    uint8_t version_attempts{0};
     bool responded{false};
     uint32_t last_response_at{0};
     uint32_t consecutive_failures{0};
@@ -377,6 +382,8 @@ class NightmatiqMesh final : public PollingComponent, public AsyncWebHandler {
                             esp_ble_mesh_generic_client_cb_param_t *param);
   void handle_node_light_(esp_ble_mesh_light_client_cb_event_t event,
                           esp_ble_mesh_light_client_cb_param_t *param);
+  void handle_node_composition_(esp_ble_mesh_cfg_client_cb_event_t event,
+                                esp_ble_mesh_cfg_client_cb_param_t *param);
   void handle_node_sensor_(esp_ble_mesh_sensor_client_cb_event_t event,
                            esp_ble_mesh_sensor_client_cb_param_t *param);
   void node_request_failed_();
@@ -385,6 +392,7 @@ class NightmatiqMesh final : public PollingComponent, public AsyncWebHandler {
   // Assistant. Only then is the old NightmatIQ-only poll still needed.
   bool main_light_entities_published_() const;
   void handle_api_node_(AsyncWebServerRequest *request);
+  static esp_ble_mesh_model_t *config_model_();
   static esp_ble_mesh_model_t *onoff_model_();
   static esp_ble_mesh_model_t *sensor_model_();
   static esp_ble_mesh_model_t *light_lc_model_();
@@ -522,9 +530,6 @@ class NightmatiqMesh final : public PollingComponent, public AsyncWebHandler {
   // time, so a single buffer is enough.
   std::array<uint8_t, 3> node_threshold_storage_{};
   net_buf_simple node_threshold_buffer_{};
-  // Passes started so far; the firmware and hardware revision probe only runs in
-  // the first two.
-  uint8_t node_pass_count_{0};
   std::vector<NodeRequest> node_poll_plan_;
   size_t node_poll_pos_{0};
   NodeRequest node_inflight_{};

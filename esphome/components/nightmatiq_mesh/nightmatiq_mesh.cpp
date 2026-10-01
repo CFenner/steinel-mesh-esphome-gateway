@@ -101,6 +101,7 @@ static esp_ble_mesh_elem_t elements[] = {
 static esp_ble_mesh_comp_t composition{};
 static esp_ble_mesh_prov_t *provision = nullptr;
 
+esp_ble_mesh_model_t *NightmatiqMesh::config_model_() { return config_client.model; }
 esp_ble_mesh_model_t *NightmatiqMesh::onoff_model_() { return onoff_client.model; }
 esp_ble_mesh_model_t *NightmatiqMesh::sensor_model_() { return sensor_client.model; }
 esp_ble_mesh_model_t *NightmatiqMesh::light_lc_model_() { return light_lc_client.model; }
@@ -1217,6 +1218,12 @@ void NightmatiqMesh::config_callback(esp_ble_mesh_cfg_client_cb_event_t event,
   NightmatiqMesh *self = NightmatiqMesh::instance_;
   if (self == nullptr || param == nullptr)
     return;
+  // A composition read issued by the node engine for one device.
+  if (param->params != nullptr && is_node_operation_(self->access_operation_.load()) &&
+      param->params->opcode == self->access_opcode_.load()) {
+    self->handle_node_composition_(event, param);
+    return;
+  }
 
   // Retain the exact completion reason in the lightweight HTTP diagnostics.
   // This avoids attaching an API log client on RAM-constrained ESP32 builds.

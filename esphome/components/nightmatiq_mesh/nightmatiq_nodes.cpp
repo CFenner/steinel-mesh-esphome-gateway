@@ -16,7 +16,9 @@
 #include "esphome/core/log.h"
 
 #include "esp_ble_mesh_common_api.h"
+#include "esp_ble_mesh_config_model_api.h"
 #include "esp_ble_mesh_networking_api.h"
+#include "esp_idf_version.h"
 
 namespace esphome {
 namespace nightmatiq_mesh {
@@ -34,9 +36,11 @@ static constexpr uint32_t NODE_FIRST_PASS_DELAY_MS = 8000;
 static constexpr uint16_t LC_LIGHT_ON_THRESHOLD_PROPERTY = 0x002B;
 static constexpr uint32_t THRESHOLD_MIN_CENTILUX = 100;
 static constexpr uint32_t THRESHOLD_MAX_CENTILUX = 150000;
-// Standard Device Properties for the firmware and hardware revision.
-static constexpr uint16_t PROPERTY_FIRMWARE_REVISION = 0x000E;
-static constexpr uint16_t PROPERTY_HARDWARE_REVISION = 0x0010;
+// The composition reply is segmented and can take several seconds.
+static constexpr uint32_t NODE_COMPOSITION_TIMEOUT_MS = 4000;
+// Ask a device for its version this many times at most before giving up.
+static constexpr uint8_t NODE_VERSION_MAX_ATTEMPTS = 5;
+static constexpr uint8_t NODE_TTL = 7;
 
 namespace {
 
@@ -80,8 +84,16 @@ bool NightmatiqMesh::find_node_index_(uint16_t address, uint8_t &index) const {
 
 void NightmatiqMesh::build_node_poll_plan_(int only_node) {
   // Reads for one node: light output state, LC mode, then every sensor element.
-  const auto add_node = [this](uint8_t index, std::vector<NodeRequest> &plan, bool probe) {
+  const auto add_node = [this](uint8_t index, std::vector<NodeRequest> &plan) {
     const StoredNode &node = this->node_table_.nodes[index];
+    {
+      // The firmware version is read live from the device's composition data.
+      // Ask until it is known, but not endlessly for a device that never answers.
+      std::lock_guard<std::mutex> lock(this->node_mutex_);
+      const NodeRuntime &state = this->node_runtime_[index];
+      if (state.version_id == 0 && state.version_attempts < NODE_VERSION_MAX_ATTEMPTS)
+        plan.push_back({NodeRequestKind::COMPOSITION_GET, index, 0, 0, false});
+    }
     const int light = light_element(node.element_caps, node.element_count, CAP_LIGHTNESS, CAP_ONOFF);
     if (light >= 0) {
       plan.push_back({NodeRequestKind::ONOFF_GET, index, static_cast<uint8_t>(light), 0, false});
@@ -96,18 +108,6 @@ void NightmatiqMesh::build_node_poll_plan_(int only_node) {
     if (lc >= 0 && has_sensor)
       plan.push_back({NodeRequestKind::THRESHOLD_GET, index, static_cast<uint8_t>(lc), 0, false});
     const size_t limit = std::min<size_t>(node.element_count, node.element_caps.size());
-    if (probe && has_sensor) {
-      // Standard Device Properties: ask the first sensor element directly for
-      // its firmware and hardware revision. A device that does not have them
-      // answers with an empty value, which is reported as "not available".
-      const int first_sensor = first_element_with(node.element_caps, node.element_count, CAP_SENSOR);
-      if (first_sensor >= 0) {
-        plan.push_back({NodeRequestKind::SENSOR_PROPERTY_GET, index, static_cast<uint8_t>(first_sensor),
-                        PROPERTY_FIRMWARE_REVISION, false});
-        plan.push_back({NodeRequestKind::SENSOR_PROPERTY_GET, index, static_cast<uint8_t>(first_sensor),
-                        PROPERTY_HARDWARE_REVISION, false});
-      }
-    }
     for (size_t element = 0; element < limit; element++)
       if ((node.element_caps[element] & CAP_SENSOR) != 0)
         plan.push_back({NodeRequestKind::SENSOR_GET, index, static_cast<uint8_t>(element), 0, false});
@@ -116,17 +116,15 @@ void NightmatiqMesh::build_node_poll_plan_(int only_node) {
   if (only_node >= 0) {
     // A refresh after a command runs before the remainder of the current pass.
     std::vector<NodeRequest> extra;
-    add_node(static_cast<uint8_t>(only_node), extra, false);
+    add_node(static_cast<uint8_t>(only_node), extra);
     this->node_poll_plan_.insert(this->node_poll_plan_.begin() + this->node_poll_pos_, extra.begin(),
                                  extra.end());
     return;
   }
   this->node_poll_plan_.clear();
   this->node_poll_pos_ = 0;
-  const bool probe = this->node_pass_count_ < 2;
-  if (this->node_pass_count_ < 255) this->node_pass_count_++;
   for (uint16_t i = 0; i < this->node_table_.count && i < this->node_table_.nodes.size(); i++)
-    add_node(static_cast<uint8_t>(i), this->node_poll_plan_, probe);
+    add_node(static_cast<uint8_t>(i), this->node_poll_plan_);
 }
 
 bool NightmatiqMesh::send_node_request_(const NodeRequest &request) {
@@ -183,16 +181,37 @@ bool NightmatiqMesh::send_node_request_(const NodeRequest &request) {
       return this->record_access_send_result_(AccessOperation::NODE_SENSOR_GET, ESP_BLE_MESH_MODEL_OP_SENSOR_GET,
                                               esp_ble_mesh_sensor_client_get_state(&common, &get));
     }
-    case NodeRequestKind::SENSOR_PROPERTY_GET: {
-      esp_ble_mesh_sensor_client_get_state_t get{};
-      if (!this->set_common_(common, sensor_model_(), ESP_BLE_MESH_MODEL_OP_SENSOR_GET, destination))
+    case NodeRequestKind::COMPOSITION_GET: {
+      // Configuration messages are encrypted with the node's device key.
+      esp_ble_mesh_cfg_client_get_state_t get{};
+      esp_ble_mesh_model_t *model = config_model_();
+      if (!this->mesh_ready_.load() || model == nullptr) break;
+      model->keys[0] = ESP_BLE_MESH_KEY_DEV;
+      common.opcode = ESP_BLE_MESH_MODEL_OP_COMPOSITION_DATA_GET;
+      common.model = model;
+      common.ctx.net_idx = this->config_.net_key_index;
+      common.ctx.app_idx = ESP_BLE_MESH_KEY_DEV;
+      common.ctx.addr = destination;
+      common.ctx.send_ttl = NODE_TTL;
+      common.msg_timeout = NODE_COMPOSITION_TIMEOUT_MS;
+#if ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5, 2, 0)
+      common.msg_role = ROLE_PROVISIONER;
+#endif
+      get.comp_data_get.page = 0;
+      if (!this->begin_access_operation_(AccessOperation::NODE_COMPOSITION_GET,
+                                         ESP_BLE_MESH_MODEL_OP_COMPOSITION_DATA_GET))
         break;
-      if (!this->begin_access_operation_(AccessOperation::NODE_SENSOR_GET, ESP_BLE_MESH_MODEL_OP_SENSOR_GET))
-        break;
-      get.sensor_get.op_en = true;
-      get.sensor_get.property_id = request.value;
-      return this->record_access_send_result_(AccessOperation::NODE_SENSOR_GET, ESP_BLE_MESH_MODEL_OP_SENSOR_GET,
-                                              esp_ble_mesh_sensor_client_get_state(&common, &get));
+      // Keep the access slot until the client itself times out. Otherwise the
+      // watchdog could release it first and a late reply would be taken for the
+      // primary device's own composition query.
+      this->access_deadline_.store(millis() + NODE_COMPOSITION_TIMEOUT_MS + 750);
+      {
+        std::lock_guard<std::mutex> lock(this->node_mutex_);
+        if (this->node_runtime_[request.node].version_attempts < 255) this->node_runtime_[request.node].version_attempts++;
+      }
+      return this->record_access_send_result_(AccessOperation::NODE_COMPOSITION_GET,
+                                              ESP_BLE_MESH_MODEL_OP_COMPOSITION_DATA_GET,
+                                              esp_ble_mesh_config_client_get_state(&common, &get));
     }
     case NodeRequestKind::ONOFF_SET: {
       esp_ble_mesh_generic_client_set_state_t set{};
@@ -488,6 +507,47 @@ void NightmatiqMesh::handle_node_light_(esp_ble_mesh_light_client_cb_event_t eve
     state.last_response_at = millis();
     state.consecutive_failures = 0;
   }
+  this->complete_access_operation_(opcode, true);
+}
+
+void NightmatiqMesh::handle_node_composition_(esp_ble_mesh_cfg_client_cb_event_t event,
+                                              esp_ble_mesh_cfg_client_cb_param_t *param) {
+  const uint32_t opcode = param->params->opcode;
+  const bool replied = event == ESP_BLE_MESH_CFG_CLIENT_GET_STATE_EVT && param->error_code == 0;
+  const net_buf_simple *data = replied ? param->status_cb.comp_data_status.composition_data : nullptr;
+  if (data == nullptr || param->status_cb.comp_data_status.page != 0 || data->len < 10 ||
+      !this->node_inflight_valid_ || this->node_inflight_.node >= this->node_runtime_.size()) {
+    this->node_request_failed_();
+    this->complete_access_operation_(opcode, false);
+    return;
+  }
+  const auto read_le16 = [](const uint8_t *value) -> uint16_t {
+    return static_cast<uint16_t>(value[0]) | (static_cast<uint16_t>(value[1]) << 8);
+  };
+  const uint16_t company_id = read_le16(data->data);
+  const uint16_t product_id = read_le16(data->data + 2);
+  const uint16_t version_id = read_le16(data->data + 4);
+  const StoredNode &node = this->node_table_.nodes[this->node_inflight_.node];
+  if (company_id != node.company_id || product_id != node.product_id) {
+    // Not the device we asked: do not attribute its version to this node.
+    ESP_LOGW(NODE_TAG, "Composition reply for 0x%04X has product 0x%04X, expected 0x%04X", node.address,
+             product_id, node.product_id);
+    this->node_request_failed_();
+    this->complete_access_operation_(opcode, false);
+    return;
+  }
+  this->note_node_response_(param->params->ctx);
+  {
+    std::lock_guard<std::mutex> lock(this->node_mutex_);
+    NodeRuntime &state = this->node_runtime_[this->node_inflight_.node];
+    state.version_id = version_id;
+    state.responded = true;
+    state.last_response_at = millis();
+    state.consecutive_failures = 0;
+  }
+  ESP_LOGI(NODE_TAG, "Node '%s' (0x%04X): version ID 0x%04X = firmware %u.%u.%u", node.name, node.address,
+           version_id, static_cast<unsigned>(version_id >> 11), static_cast<unsigned>((version_id >> 6) & 0x1F),
+           static_cast<unsigned>(version_id & 0x3F));
   this->complete_access_operation_(opcode, true);
 }
 
