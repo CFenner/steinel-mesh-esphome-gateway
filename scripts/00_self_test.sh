@@ -385,6 +385,7 @@ for source, marker in (
     (page_source, "IMPORT BACKUP FILE"),
     (page_source, "/steinel/import"),
     (page_source, "/api/nodes"),
+    (page_source, "nodeCommand(a,{threshold"),
 ):
     if marker not in source:
         errors.append(f"missing multi-node source marker: {marker}")
