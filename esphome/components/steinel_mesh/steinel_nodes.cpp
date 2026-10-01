@@ -879,8 +879,8 @@ void NightmatiqMesh::handle_api_node_(AsyncWebServerRequest *request) {
   }
   if (!run_on_arg.empty()) {
     uint32_t parsed = 0;
-    if (!parse_u32_(run_on_arg, 1, 3600, parsed))
-      return send_json_(request, 400, "{\"message\":\"run_on must be 1-3600 (seconds)\"}");
+    if (!parse_u32_(run_on_arg, 10, 3600, parsed))
+      return send_json_(request, 400, "{\"message\":\"run_on must be 10-3600 (seconds)\"}");
     run_on = static_cast<int>(parsed);
   }
 
