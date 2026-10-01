@@ -207,6 +207,7 @@ for source, marker in (
     (component_source, 'CONF_RSSI_SENSOR_ID = "rssi_sensor_id"'),
     (component_source, "var.set_rssi_sensor(rssi)"),
     (config_source, 'friendly_name: "Steinel NightmatIQ Plus"'),
+    (config_source, 'main_light_internal: "true"'),
     (config_source, "rssi_sensor_id: nightmatiq_rssi"),
     (config_source, 'name: "NightmatIQ Signal Strength"'),
     (config_source, "device_class: signal_strength"),

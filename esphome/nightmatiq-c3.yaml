@@ -6,6 +6,12 @@ substitutions:
   project_version: "1.1.1"
   factory_username: "admin"
   factory_password: "12345678"
+  # The primary device's light entities (light output, illuminance, twilight
+  # threshold, mode) are kept inside the firmware but hidden from Home Assistant:
+  # the Home Assistant integration controls every device, including that one.
+  # Set to "false" to publish them again, e.g. for the optional dialog in
+  # home-assistant/.
+  main_light_internal: "true"
 
 esphome:
   name: "${name}"
@@ -174,6 +180,7 @@ binary_sensor:
   - platform: template
     id: nightmatiq_actual_output
     name: "NightmatIQ Actual Light Output"
+    internal: ${main_light_internal}
     icon: mdi:lightbulb
 
 sensor:
@@ -197,6 +204,7 @@ sensor:
   - platform: template
     id: nightmatiq_lux
     name: "NightmatIQ Illuminance"
+    internal: ${main_light_internal}
     device_class: illuminance
     state_class: measurement
     unit_of_measurement: lx
@@ -215,6 +223,7 @@ number:
   - platform: template
     id: nightmatiq_threshold
     name: "NightmatIQ Twilight Threshold"
+    internal: ${main_light_internal}
     icon: mdi:brightness-6
     unit_of_measurement: lx
     min_value: 1
@@ -228,6 +237,7 @@ select:
   - platform: template
     id: nightmatiq_mode
     name: "NightmatIQ Mode"
+    internal: ${main_light_internal}
     icon: mdi:theme-light-dark
     optimistic: true
     restore_value: true

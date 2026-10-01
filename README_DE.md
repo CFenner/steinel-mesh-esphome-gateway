@@ -82,15 +82,13 @@ Ein optionales Frontend-Modul fasst Sensorzustand, Beleuchtungsstärke, Betriebs
 
 Die standardmäßige ESPHome-API veröffentlicht:
 
-- tatsächlichen Sensor-Ausgangszustand;
-- gemessene Beleuchtungsstärke;
-- Betriebsart;
-- Dämmerungsschwelle;
 - Bluetooth-Mesh-Bereitschaft und Status;
 - Signalstärke;
 - installierte Firmware und Hardwareversion;
 - Hersteller, Company ID und Product ID;
 - eine Aktion zur manuellen Aktualisierung.
+
+Die Licht-Entitäten des primären Geräts (tatsächlicher Lichtausgang, Beleuchtungsstärke, Betriebsart und Dämmerungsschwelle) sind in Home Assistant standardmäßig ausgeblendet, weil die Home-Assistant-Integration [HomeAssistant-Steinel-Mesh](https://github.com/CFenner/HomeAssistant-Steinel-Mesh) alle Geräte steuert, auch dieses. Um sie wieder zu veröffentlichen, setzen Sie `main_light_internal: "false"` in den Substitutions von `esphome/nightmatiq-c3.yaml` und bauen Sie neu.
 
 Home Assistant zeigt alle Entitäten unter einem Gerät namens **Steinel NightmatIQ Plus** an.
 
@@ -184,7 +182,7 @@ bash scripts/05_upload_ota.sh DEVICE_IP_ODER_HOSTNAME
 
 Home Assistant erkennt das Gerät normalerweise automatisch über ESPHome. Andernfalls öffnen Sie **Settings → Devices & services**, fügen die Integration **ESPHome** hinzu und geben IP-Adresse oder Hostname des Gateways ein. Weisen Sie **Steinel NightmatIQ Plus** anschließend dem gewünschten Bereich zu.
 
-Die Dateien unter `home-assistant/` ergänzen optional den abgebildeten kompakten Bereichskachel- und Steuerdialog:
+Der Dialog benötigt die Licht-Entitäten des primären Geräts, die standardmäßig ausgeblendet sind: Setzen Sie vor der Nutzung `main_light_internal: "false"` in `esphome/nightmatiq-c3.yaml` und bauen Sie neu. Die Dateien unter `home-assistant/` ergänzen optional den abgebildeten kompakten Bereichskachel- und Steuerdialog:
 
 1. Kopieren Sie `steinel-nightmatiq-package.yaml` in das Home-Assistant-Paketverzeichnis.
 2. Kopieren Sie `steinel-nightmatiq-popup.js` nach `/config/www/`.

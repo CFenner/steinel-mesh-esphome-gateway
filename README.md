@@ -82,15 +82,13 @@ An optional frontend module combines sensor state, illuminance, operating mode a
 
 The standard ESPHome API publishes:
 
-- actual sensor output state;
-- measured illuminance;
-- operating mode;
-- twilight threshold;
 - Bluetooth Mesh readiness and status;
 - signal strength;
 - installed firmware and hardware revision;
 - manufacturer, Company ID and Product ID;
 - a manual refresh action.
+
+The primary device's light entities (actual light output, illuminance, operating mode and twilight threshold) are hidden from Home Assistant by default, because the Home Assistant integration [HomeAssistant-Steinel-Mesh](https://github.com/CFenner/HomeAssistant-Steinel-Mesh) controls every device, including that one. To publish them again, set `main_light_internal: "false"` in the substitutions of `esphome/nightmatiq-c3.yaml` and rebuild.
 
 Home Assistant displays all published entities under one device named **Steinel NightmatIQ Plus**.
 
@@ -232,7 +230,7 @@ All control and diagnostic entities are attached directly to that device.
 
 ## 8. Optional compact Home Assistant dialog
 
-The standard ESPHome integration provides all entities and controls. The files in `home-assistant/` add the compact area tile and control dialog shown above.
+The dialog needs the primary device's light entities, which are hidden by default: set `main_light_internal: "false"` in `esphome/nightmatiq-c3.yaml` and rebuild before using it. The files in `home-assistant/` add the compact area tile and control dialog shown above.
 
 1. Copy `steinel-nightmatiq-package.yaml` to the Home Assistant packages directory.
 2. Copy `steinel-nightmatiq-popup.js` to `/config/www/`.
