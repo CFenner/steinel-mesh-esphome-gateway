@@ -380,6 +380,8 @@ for source, marker in (
     (web_source, "handleBody"),
     (header_source, "StoredNodeTable"),
     (nodes_source, "advance_node_engine_"),
+    (nodes_source, "NodeRequestKind::THRESHOLD_SET"),
+    (web_source, r'\"threshold\":'),
     (page_source, "IMPORT BACKUP FILE"),
     (page_source, "/steinel/import"),
     (page_source, "/api/nodes"),

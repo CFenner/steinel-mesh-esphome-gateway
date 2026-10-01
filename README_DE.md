@@ -58,7 +58,7 @@ Ein optionales Frontend-Modul fasst Sensorzustand, Beleuchtungsstärke, Betriebs
 - Speichert jeden steuerbaren Knoten der Sicherung, nicht nur das NightmatIQ Plus.
 - Liest Schaltzustand, Helligkeit, Automatikmodus, Bewegung und Beleuchtungsstärke jedes Geräts.
 - Steuert Leuchten: Ein/Aus, Helligkeit und Automatikmodus (sensorgesteuert).
-- Lokale API: `GET /api/nodes` und `POST /api/nodes/<Adresse>?on=1&brightness=40&auto=0`.
+- Lokale API: `GET /api/nodes` und `POST /api/nodes/<Adresse>?on=1&brightness=40&auto=0&threshold=25`.
 - Home-Assistant-Integration für alle Geräte, in einem eigenen Repository gepflegt: [HomeAssistant-Steinel-Mesh](https://github.com/CFenner/HomeAssistant-Steinel-Mesh).
 
 ### Zuverlässige Adress- und Sitzungsverwaltung

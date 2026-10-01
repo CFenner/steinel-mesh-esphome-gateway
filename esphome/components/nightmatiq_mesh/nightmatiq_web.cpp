@@ -1709,6 +1709,11 @@ void NightmatiqMesh::handle_nodes_(AsyncWebServerRequest *request, bool with_sta
       }
       body.append(",\"auto\":");
       body.append(runtime.lc_mode < 0 ? "null" : runtime.lc_mode ? "true" : "false");
+      body.append(",\"threshold\":");
+      if (runtime.threshold_centilux < 0)
+        body.append("null");
+      else
+        body.number("", static_cast<uint32_t>(std::lround(runtime.threshold_centilux / 100.0)));
       body.number(",\"failures\":", runtime.consecutive_failures);
       body.append(",\"sensors\":[");
       for (uint8_t sensor_index = 0; sensor_index < runtime.sensor_count; sensor_index++) {

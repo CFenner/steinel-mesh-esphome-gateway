@@ -58,7 +58,7 @@ An optional frontend module combines sensor state, illuminance, operating mode a
 - Stores every controllable node from the backup, not only the NightmatIQ Plus.
 - Reads on/off state, brightness, automatic mode, motion and illuminance of each device.
 - Controls lamps: on/off, brightness and automatic (sensor controlled) mode.
-- Local API: `GET /api/nodes` and `POST /api/nodes/<address>?on=1&brightness=40&auto=0`.
+- Local API: `GET /api/nodes` and `POST /api/nodes/<address>?on=1&brightness=40&auto=0&threshold=25`.
 - Home Assistant integration for all devices, maintained in a separate repository: [HomeAssistant-Steinel-Mesh](https://github.com/CFenner/HomeAssistant-Steinel-Mesh).
 
 ### Reliable address and session handling

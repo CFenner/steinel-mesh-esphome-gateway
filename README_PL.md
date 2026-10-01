@@ -58,7 +58,7 @@ Opcjonalny moduł interfejsu łączy stan sensora, natężenie oświetlenia, try
 - Zapisuje każdy sterowalny węzeł z kopii, nie tylko NightmatIQ Plus.
 - Odczytuje stan włączenia, jasność, tryb automatyczny, ruch i natężenie oświetlenia każdego urządzenia.
 - Steruje lampami: włączanie/wyłączanie, jasność i tryb automatyczny (sterowany czujnikiem).
-- Lokalne API: `GET /api/nodes` oraz `POST /api/nodes/<adres>?on=1&brightness=40&auto=0`.
+- Lokalne API: `GET /api/nodes` oraz `POST /api/nodes/<adres>?on=1&brightness=40&auto=0&threshold=25`.
 - Integracja Home Assistant dla wszystkich urządzeń, utrzymywana w osobnym repozytorium: [HomeAssistant-Steinel-Mesh](https://github.com/CFenner/HomeAssistant-Steinel-Mesh).
 
 ### Odporna obsługa adresów i sesji

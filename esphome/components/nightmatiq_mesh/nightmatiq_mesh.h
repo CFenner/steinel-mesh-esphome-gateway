@@ -280,6 +280,8 @@ class NightmatiqMesh final : public PollingComponent, public AsyncWebHandler {
     NODE_SENSOR_GET,
     NODE_ONOFF_SET,
     NODE_LIGHTNESS_SET,
+    NODE_THRESHOLD_GET,
+    NODE_THRESHOLD_SET,
   };
   static bool is_node_operation_(AccessOperation operation) {
     return operation >= AccessOperation::NODE_ONOFF_GET;
@@ -294,6 +296,8 @@ class NightmatiqMesh final : public PollingComponent, public AsyncWebHandler {
     ONOFF_SET,
     LIGHTNESS_SET,
     LC_MODE_SET,
+    THRESHOLD_GET,
+    THRESHOLD_SET,
   };
   struct NodeRequest {
     NodeRequestKind kind{NodeRequestKind::ONOFF_GET};
@@ -314,6 +318,8 @@ class NightmatiqMesh final : public PollingComponent, public AsyncWebHandler {
     int8_t onoff{-1};
     int32_t lightness{-1};
     int8_t lc_mode{-1};
+    // Light Control "ambient lux on" threshold in 0.01 lx; -1 while unknown.
+    int32_t threshold_centilux{-1};
     bool responded{false};
     uint32_t last_response_at{0};
     uint32_t consecutive_failures{0};
@@ -356,7 +362,7 @@ class NightmatiqMesh final : public PollingComponent, public AsyncWebHandler {
   bool send_node_request_(const NodeRequest &request);
   bool find_node_index_(uint16_t address, uint8_t &index) const;
   bool queue_node_command_(const NodeRequest &request);
-  bool submit_node_command_(uint8_t node, int on, int brightness_percent, int auto_mode,
+  bool submit_node_command_(uint8_t node, int on, int brightness_percent, int auto_mode, int threshold_lux,
                             std::string &error);
   void handle_node_generic_(esp_ble_mesh_generic_client_cb_event_t event,
                             esp_ble_mesh_generic_client_cb_param_t *param);
@@ -497,6 +503,11 @@ class NightmatiqMesh final : public PollingComponent, public AsyncWebHandler {
   std::array<NodeRuntime, NODE_TABLE_MAX_NODES> node_runtime_{};
   std::array<NodeRequest, NODE_COMMAND_QUEUE_SIZE> node_commands_{};
   size_t node_command_count_{0};
+  // ESP-IDF does not copy the property bytes of a Light LC Property Set, so the
+  // buffer must outlive the acknowledged request. One request is in flight at a
+  // time, so a single buffer is enough.
+  std::array<uint8_t, 3> node_threshold_storage_{};
+  net_buf_simple node_threshold_buffer_{};
   std::vector<NodeRequest> node_poll_plan_;
   size_t node_poll_pos_{0};
   NodeRequest node_inflight_{};

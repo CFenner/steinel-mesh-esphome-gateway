@@ -29,6 +29,11 @@ static constexpr uint32_t NODE_COMMAND_GAP_MS = 150;
 static constexpr uint32_t NODE_PASS_INTERVAL_MS = 20000;
 // The first pass waits so the NightmatIQ identity and initial poll go first.
 static constexpr uint32_t NODE_FIRST_PASS_DELAY_MS = 8000;
+// Light Control "ambient lux on" property, the twilight threshold. Values are
+// 24-bit illuminance in 0.01 lx; the API accepts whole lux from 1 to 1500.
+static constexpr uint16_t LC_LIGHT_ON_THRESHOLD_PROPERTY = 0x002B;
+static constexpr uint32_t THRESHOLD_MIN_CENTILUX = 100;
+static constexpr uint32_t THRESHOLD_MAX_CENTILUX = 150000;
 
 namespace {
 
@@ -82,6 +87,11 @@ void NightmatiqMesh::build_node_poll_plan_(int only_node) {
     }
     const int lc = first_element_with(node.element_caps, node.element_count, CAP_LC);
     if (lc >= 0) plan.push_back({NodeRequestKind::LC_MODE_GET, index, static_cast<uint8_t>(lc), 0, false});
+    // Only nodes with a sensor have a meaningful twilight threshold.
+    const bool has_sensor = std::any_of(node.element_caps.begin(), node.element_caps.end(),
+                                        [](uint16_t caps) { return (caps & CAP_SENSOR) != 0; });
+    if (lc >= 0 && has_sensor)
+      plan.push_back({NodeRequestKind::THRESHOLD_GET, index, static_cast<uint8_t>(lc), 0, false});
     const size_t limit = std::min<size_t>(node.element_count, node.element_caps.size());
     for (size_t element = 0; element < limit; element++)
       if ((node.element_caps[element] & CAP_SENSOR) != 0)
@@ -183,6 +193,39 @@ bool NightmatiqMesh::send_node_request_(const NodeRequest &request) {
                                               ESP_BLE_MESH_MODEL_OP_LIGHT_LIGHTNESS_SET,
                                               esp_ble_mesh_light_client_set_state(&common, &set));
     }
+    case NodeRequestKind::THRESHOLD_GET: {
+      esp_ble_mesh_light_client_get_state_t get{};
+      if (!this->set_common_(common, light_lc_model_(), ESP_BLE_MESH_MODEL_OP_LIGHT_LC_PROPERTY_GET, destination))
+        break;
+      if (!this->begin_access_operation_(AccessOperation::NODE_THRESHOLD_GET,
+                                         ESP_BLE_MESH_MODEL_OP_LIGHT_LC_PROPERTY_GET))
+        break;
+      get.lc_property_get.property_id = LC_LIGHT_ON_THRESHOLD_PROPERTY;
+      return this->record_access_send_result_(AccessOperation::NODE_THRESHOLD_GET,
+                                              ESP_BLE_MESH_MODEL_OP_LIGHT_LC_PROPERTY_GET,
+                                              esp_ble_mesh_light_client_get_state(&common, &get));
+    }
+    case NodeRequestKind::THRESHOLD_SET: {
+      esp_ble_mesh_light_client_set_state_t set{};
+      if (!this->set_common_(common, light_lc_model_(), ESP_BLE_MESH_MODEL_OP_LIGHT_LC_PROPERTY_SET, destination))
+        break;
+      if (!this->begin_access_operation_(AccessOperation::NODE_THRESHOLD_SET,
+                                         ESP_BLE_MESH_MODEL_OP_LIGHT_LC_PROPERTY_SET))
+        break;
+      const uint32_t centilux = static_cast<uint32_t>(request.value) * 100U;
+      this->node_threshold_storage_[0] = centilux & 0xFF;
+      this->node_threshold_storage_[1] = (centilux >> 8) & 0xFF;
+      this->node_threshold_storage_[2] = (centilux >> 16) & 0xFF;
+      this->node_threshold_buffer_.data = this->node_threshold_storage_.data();
+      this->node_threshold_buffer_.len = this->node_threshold_storage_.size();
+      this->node_threshold_buffer_.size = this->node_threshold_storage_.size();
+      this->node_threshold_buffer_.__buf = this->node_threshold_storage_.data();
+      set.lc_property_set.property_id = LC_LIGHT_ON_THRESHOLD_PROPERTY;
+      set.lc_property_set.property_value = &this->node_threshold_buffer_;
+      return this->record_access_send_result_(AccessOperation::NODE_THRESHOLD_SET,
+                                              ESP_BLE_MESH_MODEL_OP_LIGHT_LC_PROPERTY_SET,
+                                              esp_ble_mesh_light_client_set_state(&common, &set));
+    }
     case NodeRequestKind::LC_MODE_SET: {
       // Unacknowledged, like the NightmatIQ mode change: the lamp applies it
       // immediately and the follow-up LC Mode Get confirms the result. It does
@@ -213,7 +256,7 @@ bool NightmatiqMesh::queue_node_command_(const NodeRequest &request) {
 }
 
 bool NightmatiqMesh::submit_node_command_(uint8_t node_index, int on, int brightness_percent, int auto_mode,
-                                          std::string &error) {
+                                          int threshold_lux, std::string &error) {
   if (!this->node_table_valid_ || node_index >= this->node_table_.count) {
     error = "Unknown node";
     return false;
@@ -222,8 +265,8 @@ bool NightmatiqMesh::submit_node_command_(uint8_t node_index, int on, int bright
   const int light = light_element(node.element_caps, node.element_count, CAP_LIGHTNESS, CAP_ONOFF);
   const int lc = first_element_with(node.element_caps, node.element_count, CAP_LC);
   const bool manual = on >= 0 || brightness_percent >= 0;
-  if (!manual && auto_mode < 0) {
-    error = "Nothing to do; provide on, brightness or auto";
+  if (!manual && auto_mode < 0 && threshold_lux < 0) {
+    error = "Nothing to do; provide on, brightness, auto or threshold";
     return false;
   }
   if (manual && light < 0) {
@@ -234,19 +277,26 @@ bool NightmatiqMesh::submit_node_command_(uint8_t node_index, int on, int bright
     error = "This node has no automatic (light control) mode";
     return false;
   }
+  if (threshold_lux >= 0 && lc < 0) {
+    error = "This node has no twilight threshold";
+    return false;
+  }
   if (auto_mode == 1 && manual) {
     error = "Automatic mode cannot be combined with a manual on/off or brightness value";
     return false;
   }
 
   std::vector<NodeRequest> list;
+  if (threshold_lux >= 0)
+    list.push_back({NodeRequestKind::THRESHOLD_SET, node_index, static_cast<uint8_t>(lc),
+                    static_cast<uint16_t>(threshold_lux), false});
   if (auto_mode >= 0) {
     // Sent twice: unacknowledged messages can be lost, and the lamp ignores
     // the duplicate.
     for (int i = 0; i < 2; i++)
       list.push_back({NodeRequestKind::LC_MODE_SET, node_index, static_cast<uint8_t>(lc),
                       static_cast<uint16_t>(auto_mode), false});
-  } else if (lc >= 0) {
+  } else if (manual && lc >= 0) {
     // A manual command only sticks once automatic control is switched off.
     for (int i = 0; i < 2; i++)
       list.push_back({NodeRequestKind::LC_MODE_SET, node_index, static_cast<uint8_t>(lc), 0, false});
@@ -360,17 +410,38 @@ void NightmatiqMesh::handle_node_light_(esp_ble_mesh_light_client_cb_event_t eve
   const uint32_t received = param->params->ctx.recv_op;
   const bool lightness = received == ESP_BLE_MESH_MODEL_OP_LIGHT_LIGHTNESS_STATUS;
   const bool lc_mode = received == ESP_BLE_MESH_MODEL_OP_LIGHT_LC_MODE_STATUS;
-  if (event == ESP_BLE_MESH_LIGHT_CLIENT_TIMEOUT_EVT || param->error_code != 0 || (!lightness && !lc_mode) ||
+  const bool property = received == ESP_BLE_MESH_MODEL_OP_LIGHT_LC_PROPERTY_STATUS;
+  if (event == ESP_BLE_MESH_LIGHT_CLIENT_TIMEOUT_EVT || param->error_code != 0 || (!lightness && !lc_mode && !property) ||
       !this->node_inflight_valid_ || this->node_inflight_.node >= this->node_runtime_.size()) {
     this->node_request_failed_();
     this->complete_access_operation_(opcode, false);
     return;
+  }
+  int32_t threshold_centilux = -1;
+  if (property) {
+    const auto &status = param->status_cb.lc_property_status;
+    if (status.property_id == LC_LIGHT_ON_THRESHOLD_PROPERTY && status.property_value != nullptr &&
+        status.property_value->len >= 3) {
+      const uint8_t *value = status.property_value->data;
+      const uint32_t parsed = static_cast<uint32_t>(value[0]) | (static_cast<uint32_t>(value[1]) << 8) |
+                              (static_cast<uint32_t>(value[2]) << 16);
+      // Anything outside the range the API accepts is not trusted.
+      if (parsed >= THRESHOLD_MIN_CENTILUX && parsed <= THRESHOLD_MAX_CENTILUX)
+        threshold_centilux = static_cast<int32_t>(parsed);
+    }
+    if (threshold_centilux < 0) {
+      this->node_request_failed_();
+      this->complete_access_operation_(opcode, false);
+      return;
+    }
   }
   {
     std::lock_guard<std::mutex> lock(this->node_mutex_);
     NodeRuntime &state = this->node_runtime_[this->node_inflight_.node];
     if (lightness)
       state.lightness = param->status_cb.lightness_status.present_lightness;
+    else if (property)
+      state.threshold_centilux = threshold_centilux;
     else
       state.lc_mode = param->status_cb.lc_mode_status.mode != 0 ? 1 : 0;
     state.responded = true;
@@ -453,9 +524,11 @@ void NightmatiqMesh::handle_api_node_(AsyncWebServerRequest *request) {
   int on = -1;
   int auto_mode = -1;
   int brightness = -1;
+  int threshold = -1;
   const std::string on_arg = request->arg("on");
   const std::string auto_arg = request->arg("auto");
   const std::string brightness_arg = request->arg("brightness");
+  const std::string threshold_arg = request->arg("threshold");
   if (!on_arg.empty() && !parse_switch(on_arg, on))
     return send_json_(request, 400, "{\"message\":\"on must be 0/1, true/false or on/off\"}");
   if (!auto_arg.empty() && !parse_switch(auto_arg, auto_mode))
@@ -466,9 +539,15 @@ void NightmatiqMesh::handle_api_node_(AsyncWebServerRequest *request) {
       return send_json_(request, 400, "{\"message\":\"brightness must be 0-100\"}");
     brightness = static_cast<int>(parsed);
   }
+  if (!threshold_arg.empty()) {
+    uint32_t parsed = 0;
+    if (!parse_u32_(threshold_arg, 1, 1500, parsed))
+      return send_json_(request, 400, "{\"message\":\"threshold must be 1-1500 (lux)\"}");
+    threshold = static_cast<int>(parsed);
+  }
 
   std::string error;
-  if (!this->submit_node_command_(index, on, brightness, auto_mode, error)) {
+  if (!this->submit_node_command_(index, on, brightness, auto_mode, threshold, error)) {
     std::string escaped;
     for (char c : error)
       if (c != '"' && c != '\\' && static_cast<unsigned char>(c) >= 0x20) escaped += c;
