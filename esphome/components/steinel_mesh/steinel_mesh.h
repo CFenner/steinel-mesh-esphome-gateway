@@ -17,6 +17,7 @@
 #include "esphome/core/preferences.h"
 
 #include "esp_ble_mesh_defs.h"
+#include "esp_ble_mesh_local_data_operation_api.h"
 #include "esp_ble_mesh_config_model_api.h"
 #include "esp_ble_mesh_generic_model_api.h"
 #include "esp_ble_mesh_lighting_model_api.h"
@@ -100,6 +101,9 @@ class NightmatiqMesh final : public Component, public AsyncWebHandler {
   static constexpr size_t NODE_TABLE_MAX_NODES = 12;
   static constexpr size_t NODE_MAX_ELEMENTS = 6;
   static constexpr size_t NODE_NAME_MAX_LENGTH = 31;
+  static constexpr uint32_t SENSOR_GROUPS_MAGIC = 0x4E4D510BU;  // "NMQ\v"
+  static constexpr uint16_t SENSOR_GROUPS_VERSION = 1;
+  static constexpr size_t SENSOR_GROUPS_MAX = 6;
   static constexpr uint32_t AUTO_UPDATE_MAGIC = 0x4E4D5155U;  // "NMQU"
   static constexpr uint16_t AUTO_UPDATE_VERSION = 1;
   static constexpr size_t AUTO_UPDATE_VERSION_MAX_LENGTH = 23;
@@ -224,6 +228,15 @@ class NightmatiqMesh final : public Component, public AsyncWebHandler {
     std::array<StoredNode, NODE_TABLE_MAX_NODES> nodes{};
   };
 
+  // Group addresses the sensors in the backup publish their readings to. The
+  // gateway subscribes to them and receives those readings without asking.
+  struct StoredSensorGroups {
+    uint32_t magic{SENSOR_GROUPS_MAGIC};
+    uint16_t version{SENSOR_GROUPS_VERSION};
+    uint16_t count{0};
+    std::array<uint16_t, SENSOR_GROUPS_MAX> groups{};
+  };
+
   enum class AccessOperation : uint8_t {
     NONE,
     // Requests issued by the node engine. They share the single access slot, so
@@ -305,6 +318,12 @@ class NightmatiqMesh final : public Component, public AsyncWebHandler {
   void advance_mesh_remove_();
   void advance_factory_reset_();
   void monitor_iv_index_();
+  bool load_sensor_groups_();
+  bool save_sensor_groups_(const StoredSensorGroups &groups);
+  void subscribe_sensor_groups_();
+  static void add_sensor_group_(StoredSensorGroups &groups, uint16_t address);
+  void handle_node_sensor_publish_(esp_ble_mesh_sensor_client_cb_param_t *param);
+  void store_sensor_data_(uint8_t node, uint8_t element, const uint8_t *data, size_t length);
   bool load_node_table_();
   bool save_node_table_(const StoredNodeTable &table);
   void clear_node_table_();
@@ -421,6 +440,9 @@ class NightmatiqMesh final : public Component, public AsyncWebHandler {
   ESPPreferenceObject admin_credentials_preference_;
   ESPPreferenceObject auto_update_preference_;
   ESPPreferenceObject node_table_preference_;
+  ESPPreferenceObject sensor_groups_preference_;
+  StoredSensorGroups sensor_groups_{};
+  StoredSensorGroups import_sensor_groups_{};
   StoredNodeTable node_table_{};
   bool node_table_valid_{false};
   // Local backup upload. The body is streamed into the inactive OTA partition

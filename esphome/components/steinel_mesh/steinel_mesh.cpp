@@ -526,6 +526,8 @@ void NightmatiqMesh::setup() {
       global_preferences->make_preference<StoredAutoUpdate>(0x4E4D5109U);
   this->node_table_preference_ =
       global_preferences->make_preference<StoredNodeTable>(0x4E4D510AU);
+  this->sensor_groups_preference_ =
+      global_preferences->make_preference<StoredSensorGroups>(0x4E4D510BU);
   this->load_admin_credentials_();
   this->apply_admin_credentials_();
   this->base_->add_handler(this);
@@ -539,6 +541,7 @@ void NightmatiqMesh::setup() {
   if (has_config) {
     this->load_device_key_();
     this->load_node_table_();
+    this->load_sensor_groups_();
     this->mesh_mode_enabled_ =
         (this->config_.flags & (FLAG_ENABLED | FLAG_REMOVE_PENDING)) != 0;
   }
@@ -677,6 +680,7 @@ void NightmatiqMesh::mark_ready_() {
   this->ready_publish_pending_.store(true);
   this->set_status_("Mesh client ready");
   ESP_LOGI(TAG, "Mesh keys imported and all client models bound");
+  this->subscribe_sensor_groups_();
 }
 
 void NightmatiqMesh::advance_address_recovery_(uint32_t now) {
@@ -873,6 +877,11 @@ void NightmatiqMesh::sensor_callback(esp_ble_mesh_sensor_client_cb_event_t event
   NightmatiqMesh *self = NightmatiqMesh::instance_;
   if (self == nullptr || param == nullptr || param->params == nullptr)
     return;
+  // A sensor reading a device published on its own, to a group we subscribed to.
+  if (event == ESP_BLE_MESH_SENSOR_CLIENT_PUBLISH_EVT) {
+    self->handle_node_sensor_publish_(param);
+    return;
+  }
   if (is_node_operation_(self->access_operation_.load()) &&
       param->params->opcode == self->access_opcode_.load())
     self->handle_node_sensor_(event, param);

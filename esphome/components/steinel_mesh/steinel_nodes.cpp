@@ -583,6 +583,108 @@ void NightmatiqMesh::handle_node_composition_(esp_ble_mesh_cfg_client_cb_event_t
   this->complete_access_operation_(opcode, true);
 }
 
+void NightmatiqMesh::store_sensor_data_(uint8_t node, uint8_t element, const uint8_t *data, size_t length) {
+  if (node >= this->node_runtime_.size()) return;
+  {
+    std::lock_guard<std::mutex> lock(this->node_mutex_);
+    NodeRuntime &state = this->node_runtime_[node];
+    const uint8_t *cursor = data;
+    size_t remaining = length;
+    while (remaining > 0) {
+      const uint8_t format = ESP_BLE_MESH_GET_SENSOR_DATA_FORMAT(cursor);
+      const size_t mpid_length = format == ESP_BLE_MESH_SENSOR_DATA_FORMAT_A
+                                     ? ESP_BLE_MESH_SENSOR_DATA_FORMAT_A_MPID_LEN
+                                     : ESP_BLE_MESH_SENSOR_DATA_FORMAT_B_MPID_LEN;
+      if (remaining < mpid_length) break;
+      const uint8_t encoded_length = ESP_BLE_MESH_GET_SENSOR_DATA_LENGTH(cursor, format);
+      const uint16_t property_id = ESP_BLE_MESH_GET_SENSOR_DATA_PROPERTY_ID(cursor, format);
+      // A zero-length marker means the property exists but has no value.
+      const size_t value_length =
+          encoded_length == ESP_BLE_MESH_SENSOR_DATA_ZERO_LEN ? 0 : static_cast<size_t>(encoded_length) + 1;
+      if (remaining < mpid_length + value_length) break;
+
+      NodeSensorValue *slot = nullptr;
+      for (uint8_t i = 0; i < state.sensor_count; i++)
+        if (state.sensors[i].element == element && state.sensors[i].property == property_id) {
+          slot = &state.sensors[i];
+          break;
+        }
+      if (slot == nullptr && state.sensor_count < state.sensors.size()) slot = &state.sensors[state.sensor_count++];
+      if (slot != nullptr) {
+        if (slot->length == 0 && slot->element == 0 && slot->property == 0)
+          ESP_LOGI(NODE_TAG, "Node '%s' element %u: first reading of sensor property 0x%04X (%u bytes)",
+                   this->node_table_.nodes[node].name, static_cast<unsigned>(element),
+                   static_cast<unsigned>(property_id), static_cast<unsigned>(value_length));
+        slot->element = element;
+        slot->property = property_id;
+        slot->length = static_cast<uint8_t>(std::min(value_length, slot->raw.size()));
+        std::memcpy(slot->raw.data(), cursor + mpid_length, slot->length);
+      }
+      cursor += mpid_length + value_length;
+      remaining -= mpid_length + value_length;
+    }
+  }
+}
+
+void NightmatiqMesh::handle_node_sensor_publish_(esp_ble_mesh_sensor_client_cb_param_t *param) {
+  const esp_ble_mesh_msg_ctx_t &context = param->params->ctx;
+  if (context.recv_op != ESP_BLE_MESH_MODEL_OP_SENSOR_STATUS) return;
+  const net_buf_simple *buffer = param->status_cb.sensor_status.marshalled_sensor_data;
+  uint8_t node = 0;
+  if (buffer == nullptr || buffer->len == 0 || !this->find_node_index_(context.addr, node)) return;
+  const uint8_t element = static_cast<uint8_t>(context.addr - this->node_table_.nodes[node].address);
+  this->note_node_response_(context);
+  this->store_sensor_data_(node, element, buffer->data, buffer->len);
+  std::lock_guard<std::mutex> lock(this->node_mutex_);
+  NodeRuntime &state = this->node_runtime_[node];
+  state.responded = true;
+  state.last_response_at = millis();
+  state.consecutive_failures = 0;
+}
+
+void NightmatiqMesh::add_sensor_group_(StoredSensorGroups &groups, uint16_t address) {
+  // Only group addresses (0xC000-0xFEFF) can be subscribed to.
+  if (address < 0xC000 || address > 0xFEFF) return;
+  for (uint16_t i = 0; i < groups.count; i++)
+    if (groups.groups[i] == address) return;
+  if (groups.count < groups.groups.size()) groups.groups[groups.count++] = address;
+}
+
+bool NightmatiqMesh::load_sensor_groups_() {
+  StoredSensorGroups loaded{};
+  if (!this->sensor_groups_preference_.load(&loaded) || loaded.magic != SENSOR_GROUPS_MAGIC ||
+      loaded.version != SENSOR_GROUPS_VERSION || loaded.count > loaded.groups.size()) {
+    this->sensor_groups_ = StoredSensorGroups{};
+    return false;
+  }
+  this->sensor_groups_ = loaded;
+  return true;
+}
+
+bool NightmatiqMesh::save_sensor_groups_(const StoredSensorGroups &groups) {
+  if (!this->sensor_groups_preference_.save(&groups)) return false;
+  this->sensor_groups_ = groups;
+  return true;
+}
+
+void NightmatiqMesh::subscribe_sensor_groups_() {
+  // The sensors publish to these groups on their own. Subscribing the local
+  // Sensor client lets the gateway receive those readings without asking.
+  if (this->sensor_groups_.count == 0) {
+    ESP_LOGI(NODE_TAG, "No sensor groups stored; import the backup again to receive sensor readings without polling");
+    return;
+  }
+  for (uint16_t i = 0; i < this->sensor_groups_.count; i++) {
+    const uint16_t group = this->sensor_groups_.groups[i];
+    const esp_err_t error = esp_ble_mesh_model_subscribe_group_addr(
+        this->config_.local_address, ESP_BLE_MESH_CID_NVAL, ESP_BLE_MESH_MODEL_ID_SENSOR_CLI, group);
+    if (error == ESP_OK)
+      ESP_LOGI(NODE_TAG, "Subscribed to sensor group 0x%04X", group);
+    else
+      ESP_LOGW(NODE_TAG, "Could not subscribe to sensor group 0x%04X: %s", group, esp_err_to_name(error));
+  }
+}
+
 void NightmatiqMesh::handle_node_sensor_(esp_ble_mesh_sensor_client_cb_event_t event,
                                          esp_ble_mesh_sensor_client_cb_param_t *param) {
   const uint32_t opcode = param->params->opcode;
@@ -627,45 +729,10 @@ void NightmatiqMesh::handle_node_sensor_(esp_ble_mesh_sensor_client_cb_event_t e
              static_cast<unsigned>(this->node_inflight_.element));
 
   this->note_node_response_(param->params->ctx);
+  this->store_sensor_data_(this->node_inflight_.node, this->node_inflight_.element, buffer->data, buffer->len);
   {
     std::lock_guard<std::mutex> lock(this->node_mutex_);
     NodeRuntime &state = this->node_runtime_[this->node_inflight_.node];
-    const uint8_t element = this->node_inflight_.element;
-    const uint8_t *data = buffer->data;
-    size_t remaining = buffer->len;
-    while (remaining > 0) {
-      const uint8_t format = ESP_BLE_MESH_GET_SENSOR_DATA_FORMAT(data);
-      const size_t mpid_length = format == ESP_BLE_MESH_SENSOR_DATA_FORMAT_A
-                                     ? ESP_BLE_MESH_SENSOR_DATA_FORMAT_A_MPID_LEN
-                                     : ESP_BLE_MESH_SENSOR_DATA_FORMAT_B_MPID_LEN;
-      if (remaining < mpid_length) break;
-      const uint8_t encoded_length = ESP_BLE_MESH_GET_SENSOR_DATA_LENGTH(data, format);
-      const uint16_t property_id = ESP_BLE_MESH_GET_SENSOR_DATA_PROPERTY_ID(data, format);
-      // A zero-length marker means the property exists but has no value.
-      const size_t value_length =
-          encoded_length == ESP_BLE_MESH_SENSOR_DATA_ZERO_LEN ? 0 : static_cast<size_t>(encoded_length) + 1;
-      if (remaining < mpid_length + value_length) break;
-
-      NodeSensorValue *slot = nullptr;
-      for (uint8_t i = 0; i < state.sensor_count; i++)
-        if (state.sensors[i].element == element && state.sensors[i].property == property_id) {
-          slot = &state.sensors[i];
-          break;
-        }
-      if (slot == nullptr && state.sensor_count < state.sensors.size()) slot = &state.sensors[state.sensor_count++];
-      if (slot != nullptr) {
-        if (slot->length == 0 && slot->element == 0 && slot->property == 0)
-          ESP_LOGI(NODE_TAG, "Node '%s' element %u: first reading of sensor property 0x%04X (%u bytes)",
-                   this->node_table_.nodes[this->node_inflight_.node].name, static_cast<unsigned>(element),
-                   static_cast<unsigned>(property_id), static_cast<unsigned>(value_length));
-        slot->element = element;
-        slot->property = property_id;
-        slot->length = static_cast<uint8_t>(std::min(value_length, slot->raw.size()));
-        std::memcpy(slot->raw.data(), data + mpid_length, slot->length);
-      }
-      data += mpid_length + value_length;
-      remaining -= mpid_length + value_length;
-    }
     state.responded = true;
     state.last_response_at = millis();
     state.consecutive_failures = 0;

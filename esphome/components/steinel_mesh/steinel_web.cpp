@@ -448,6 +448,9 @@ struct BackupNode {
   bool model_1100{false};
   uint16_t lc_element_index{0};
   uint16_t sensor_element_index{0};
+  // Groups the node's Sensor servers publish to.
+  std::array<uint16_t, 4> sensor_groups{};
+  uint8_t sensor_group_count{0};
   std::array<uint8_t, 16> device_key{};
   char name[48]{};
 };
@@ -525,13 +528,30 @@ bool read_first_binding(FlashJsonReader &reader, uint16_t &binding, bool &valid)
   });
 }
 
+// The "publish" entry of a model is an object with an "address", or null.
+bool read_publish_address(FlashJsonReader &reader, uint16_t &address, bool &valid) {
+  reader.skip_whitespace();
+  char first = 0;
+  if (!reader.peek(first) || first != '{') return reader.skip_value();
+  return read_object(reader, [&](const char *key) {
+    if (std::strcmp(key, "address") != 0) return reader.skip_value();
+    char text[12]{};
+    if (!reader.read_string(text, sizeof(text))) return false;
+    valid = parse_hex_address(text, address);
+    return true;
+  });
+}
+
 bool read_model(FlashJsonReader &reader, size_t element_index, BackupNode &node) {
   char model_id[16]{};
   uint16_t binding = 0;
   bool binding_valid = false;
+  uint16_t publish_address = 0;
+  bool publish_valid = false;
   if (!read_object(reader, [&](const char *key) {
         if (std::strcmp(key, "modelId") == 0) return reader.read_string(model_id, sizeof(model_id));
         if (std::strcmp(key, "bind") == 0) return read_first_binding(reader, binding, binding_valid);
+        if (std::strcmp(key, "publish") == 0) return read_publish_address(reader, publish_address, publish_valid);
         return reader.skip_value();
       })) return false;
   if (element_index < node.element_caps.size())
@@ -552,6 +572,11 @@ bool read_model(FlashJsonReader &reader, size_t element_index, BackupNode &node)
   if (std::strcmp(model_id, "1100") == 0) {
     node.model_1100 = true;
     node.sensor_element_index = static_cast<uint16_t>(element_index);
+    if (publish_valid && node.sensor_group_count < node.sensor_groups.size()) {
+      bool known = false;
+      for (uint8_t i = 0; i < node.sensor_group_count; i++) known |= node.sensor_groups[i] == publish_address;
+      if (!known) node.sensor_groups[node.sensor_group_count++] = publish_address;
+    }
   }
   return true;
 }
@@ -802,6 +827,10 @@ void NightmatiqMesh::clear_node_table_() {
   this->node_table_preference_.save(&empty);
   this->node_table_ = StoredNodeTable{};
   this->node_table_valid_ = false;
+  StoredSensorGroups no_groups{};
+  no_groups.magic = 0;
+  this->sensor_groups_preference_.save(&no_groups);
+  this->sensor_groups_ = StoredSensorGroups{};
 }
 
 // Friendly names for the Steinel products seen in real networks. The identifier
@@ -2125,6 +2154,7 @@ bool NightmatiqMesh::parse_backup_(const BackupBody &body, uint32_t requested_iv
   // one recognised server model; this leaves out the phone app entry.
   node_table = StoredNodeTable{};
   node_table.mesh_uuid = summary->mesh_uuid;
+  this->import_sensor_groups_ = StoredSensorGroups{};
   for (size_t index = 0; index < summary->node_count; index++) {
     const BackupNode &node = summary->nodes[index];
     if (!node.address_valid || !node.device_key_valid || node.element_count == 0) continue;
@@ -2146,6 +2176,8 @@ bool NightmatiqMesh::parse_backup_(const BackupBody &body, uint32_t requested_iv
       stored.element_caps[element] = node.element_caps[element];
     stored.device_key = node.device_key;
     std::snprintf(stored.name, sizeof(stored.name), "%s", node.name);
+    for (uint8_t i = 0; i < node.sensor_group_count; i++)
+      add_sensor_group_(this->import_sensor_groups_, node.sensor_groups[i]);
   }
 
   if (!summary->unicast_range_valid) {
@@ -2244,6 +2276,7 @@ bool NightmatiqMesh::install_backup_(BackupBody &body, uint32_t iv_index, uint16
       return false;
     }
     if (!this->save_node_table_(*table)) { error = "Could not save the node table"; return false; }
+    if (!this->save_sensor_groups_(this->import_sensor_groups_)) { error = "Could not save the sensor groups"; return false; }
     if (!this->save_config_(parsed)) { error = "Could not save configuration to flash"; return false; }
     return true;
   }();
