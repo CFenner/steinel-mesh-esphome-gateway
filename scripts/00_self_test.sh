@@ -346,6 +346,7 @@ for source, marker in (
     (nodes_source, "NodeRequestKind::SENSOR_DESCRIPTOR_GET"),
     (nodes_source, "subscribe_sensor_groups_"),
     (nodes_source, "NodeRequestKind::RUN_ON_GET"),
+    (web_source, '\"lux\":null'),
     (nodes_source, "NodeRequestKind::RUN_ON_SET"),
     (nodes_source, "LC_TIME_RUN_ON_PROPERTY"),
     (page_source, "nodeCommand(a,{run_on"),

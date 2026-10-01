@@ -1728,8 +1728,13 @@ void NightmatiqMesh::handle_nodes_(AsyncWebServerRequest *request) {
       // still reported through the raw bytes above.
       if (value.property == 0x004E && value.length >= 3) {
         const uint32_t centilux = value.raw[0] | (value.raw[1] << 8) | (value.raw[2] << 16);
-        std::snprintf(text, sizeof(text), ",\"lux\":%.2f", centilux / 100.0);
-        body.append(text);
+        // 0xFFFFFF is the Mesh value for "not known", not a measurement.
+        if (centilux == 0xFFFFFF) {
+          body.append(",\"lux\":null");
+        } else {
+          std::snprintf(text, sizeof(text), ",\"lux\":%.2f", centilux / 100.0);
+          body.append(text);
+        }
       } else if (value.property == 0x004D && value.length >= 1) {
         body.append(value.raw[0] != 0 ? ",\"presence\":true" : ",\"presence\":false");
       } else if (value.property == 0x0042 && value.length >= 1) {
