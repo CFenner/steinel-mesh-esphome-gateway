@@ -1,6 +1,6 @@
 # Steinel NightmatIQ Plus Gateway für ESP32-C3
 
-[English](README.md) · [Polski](README_PL.md)
+[English](README.md)
 
 > **Eigenständiges ESP32-C3 Bluetooth-Mesh-Gateway für lokale Steuerung, Diagnose, Firmware-Aktualisierungen und Home-Assistant-Integration des Steinel NightmatIQ Plus.**
 

@@ -30,7 +30,6 @@ fi
 
 for path in \
   "$ROOT_DIR/README.md" \
-  "$ROOT_DIR/README_PL.md" \
   "$ROOT_DIR/README_DE.md" \
   "$ROOT_DIR/CHANGELOG.md" \
   "$CONFIG" \
@@ -88,12 +87,10 @@ else
 fi
 
 for navigation in \
-  'README.md:README_PL.md:README_DE.md' \
-  'README_PL.md:README.md:README_DE.md' \
-  'README_DE.md:README.md:README_PL.md'; do
-  IFS=: read -r file first second <<<"$navigation"
-  grep -Fq "$first" "$ROOT_DIR/$file" || fail "missing language navigation in $file: $first"
-  grep -Fq "$second" "$ROOT_DIR/$file" || fail "missing language navigation in $file: $second"
+  'README.md:README_DE.md' \
+  'README_DE.md:README.md'; do
+  IFS=: read -r file link <<<"$navigation"
+  grep -Fq "$link" "$ROOT_DIR/$file" || fail "missing language navigation in $file: $link"
   grep -Fq 'web.esphome.io' "$ROOT_DIR/$file" || fail "missing ready-made installation instructions: $file"
 done
 
