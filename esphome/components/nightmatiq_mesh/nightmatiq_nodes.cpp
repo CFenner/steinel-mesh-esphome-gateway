@@ -41,6 +41,10 @@ static constexpr uint32_t NODE_COMPOSITION_TIMEOUT_MS = 4000;
 // Ask a device for its version this many times at most before giving up.
 static constexpr uint8_t NODE_VERSION_MAX_ATTEMPTS = 5;
 static constexpr uint8_t NODE_TTL = 7;
+// Present Ambient Light Level, asked for explicitly on sensor elements that never
+// answered the plain Sensor Get. Tried a limited number of times per device.
+static constexpr uint16_t PROPERTY_AMBIENT_LIGHT_LEVEL = 0x004E;
+static constexpr uint8_t NODE_SENSOR_PROBE_MAX_ATTEMPTS = 5;
 
 namespace {
 
@@ -84,7 +88,7 @@ bool NightmatiqMesh::find_node_index_(uint16_t address, uint8_t &index) const {
 
 void NightmatiqMesh::build_node_poll_plan_(int only_node) {
   // Reads for one node: light output state, LC mode, then every sensor element.
-  const auto add_node = [this](uint8_t index, std::vector<NodeRequest> &plan) {
+  const auto add_node = [this](uint8_t index, std::vector<NodeRequest> &plan, bool probe) {
     const StoredNode &node = this->node_table_.nodes[index];
     {
       // The firmware version is read live from the device's composition data.
@@ -111,12 +115,36 @@ void NightmatiqMesh::build_node_poll_plan_(int only_node) {
     for (size_t element = 0; element < limit; element++)
       if ((node.element_caps[element] & CAP_SENSOR) != 0)
         plan.push_back({NodeRequestKind::SENSOR_GET, index, static_cast<uint8_t>(element), 0, false});
+    if (probe) {
+      // A sensor element that has never produced a reading may need to be asked for
+      // the ambient light level explicitly, and its descriptor tells which properties
+      // it offers. Do that a few times only, so a sensor that has nothing to report
+      // does not cost traffic forever.
+      std::lock_guard<std::mutex> lock(this->node_mutex_);
+      NodeRuntime &state = this->node_runtime_[index];
+      if (state.sensor_probe_attempts < NODE_SENSOR_PROBE_MAX_ATTEMPTS) {
+        bool probed = false;
+        for (size_t element = 0; element < limit; element++) {
+          if ((node.element_caps[element] & CAP_SENSOR) == 0) continue;
+          bool has_reading = false;
+          for (uint8_t i = 0; i < state.sensor_count; i++)
+            if (state.sensors[i].element == element) has_reading = true;
+          if (has_reading) continue;
+          plan.push_back({NodeRequestKind::SENSOR_PROPERTY_GET, index, static_cast<uint8_t>(element),
+                          PROPERTY_AMBIENT_LIGHT_LEVEL, false});
+          if (state.sensor_probe_attempts == 0)
+            plan.push_back({NodeRequestKind::SENSOR_DESCRIPTOR_GET, index, static_cast<uint8_t>(element), 0, false});
+          probed = true;
+        }
+        if (probed) state.sensor_probe_attempts++;
+      }
+    }
   };
 
   if (only_node >= 0) {
     // A refresh after a command runs before the remainder of the current pass.
     std::vector<NodeRequest> extra;
-    add_node(static_cast<uint8_t>(only_node), extra);
+    add_node(static_cast<uint8_t>(only_node), extra, false);
     this->node_poll_plan_.insert(this->node_poll_plan_.begin() + this->node_poll_pos_, extra.begin(),
                                  extra.end());
     return;
@@ -124,7 +152,7 @@ void NightmatiqMesh::build_node_poll_plan_(int only_node) {
   this->node_poll_plan_.clear();
   this->node_poll_pos_ = 0;
   for (uint16_t i = 0; i < this->node_table_.count && i < this->node_table_.nodes.size(); i++)
-    add_node(static_cast<uint8_t>(i), this->node_poll_plan_);
+    add_node(static_cast<uint8_t>(i), this->node_poll_plan_, true);
 }
 
 bool NightmatiqMesh::send_node_request_(const NodeRequest &request) {
@@ -179,6 +207,29 @@ bool NightmatiqMesh::send_node_request_(const NodeRequest &request) {
       // the response also tells us which properties these devices expose.
       get.sensor_get.op_en = false;
       return this->record_access_send_result_(AccessOperation::NODE_SENSOR_GET, ESP_BLE_MESH_MODEL_OP_SENSOR_GET,
+                                              esp_ble_mesh_sensor_client_get_state(&common, &get));
+    }
+    case NodeRequestKind::SENSOR_PROPERTY_GET: {
+      esp_ble_mesh_sensor_client_get_state_t get{};
+      if (!this->set_common_(common, sensor_model_(), ESP_BLE_MESH_MODEL_OP_SENSOR_GET, destination))
+        break;
+      if (!this->begin_access_operation_(AccessOperation::NODE_SENSOR_GET, ESP_BLE_MESH_MODEL_OP_SENSOR_GET))
+        break;
+      get.sensor_get.op_en = true;
+      get.sensor_get.property_id = request.value;
+      return this->record_access_send_result_(AccessOperation::NODE_SENSOR_GET, ESP_BLE_MESH_MODEL_OP_SENSOR_GET,
+                                              esp_ble_mesh_sensor_client_get_state(&common, &get));
+    }
+    case NodeRequestKind::SENSOR_DESCRIPTOR_GET: {
+      esp_ble_mesh_sensor_client_get_state_t get{};
+      if (!this->set_common_(common, sensor_model_(), ESP_BLE_MESH_MODEL_OP_SENSOR_DESCRIPTOR_GET, destination))
+        break;
+      if (!this->begin_access_operation_(AccessOperation::NODE_SENSOR_GET,
+                                         ESP_BLE_MESH_MODEL_OP_SENSOR_DESCRIPTOR_GET))
+        break;
+      get.descriptor_get.op_en = false;
+      return this->record_access_send_result_(AccessOperation::NODE_SENSOR_GET,
+                                              ESP_BLE_MESH_MODEL_OP_SENSOR_DESCRIPTOR_GET,
                                               esp_ble_mesh_sensor_client_get_state(&common, &get));
     }
     case NodeRequestKind::COMPOSITION_GET: {
@@ -554,16 +605,45 @@ void NightmatiqMesh::handle_node_composition_(esp_ble_mesh_cfg_client_cb_event_t
 void NightmatiqMesh::handle_node_sensor_(esp_ble_mesh_sensor_client_cb_event_t event,
                                          esp_ble_mesh_sensor_client_cb_param_t *param) {
   const uint32_t opcode = param->params->opcode;
+  const bool descriptor_reply = event != ESP_BLE_MESH_SENSOR_CLIENT_TIMEOUT_EVT && param->error_code == 0 &&
+                                param->params->ctx.recv_op == ESP_BLE_MESH_MODEL_OP_SENSOR_DESCRIPTOR_STATUS;
+  if (descriptor_reply && this->node_inflight_valid_ && this->node_inflight_.node < this->node_runtime_.size()) {
+    // Lists the sensor properties an element offers, 8 bytes per sensor.
+    const net_buf_simple *list = param->status_cb.descriptor_status.descriptor;
+    const StoredNode &described = this->node_table_.nodes[this->node_inflight_.node];
+    this->note_node_response_(param->params->ctx);
+    if (list == nullptr || list->len < 8) {
+      ESP_LOGW(NODE_TAG, "Node '%s' element %u: sensor descriptor reply is empty", described.name,
+               static_cast<unsigned>(this->node_inflight_.element));
+    } else {
+      for (size_t offset = 0; offset + 8 <= list->len; offset += 8)
+        ESP_LOGI(NODE_TAG, "Node '%s' element %u offers sensor property 0x%04X", described.name,
+                 static_cast<unsigned>(this->node_inflight_.element),
+                 static_cast<unsigned>(list->data[offset] | (list->data[offset + 1] << 8)));
+    }
+    this->complete_access_operation_(opcode, true);
+    return;
+  }
   net_buf_simple *buffer =
       event == ESP_BLE_MESH_SENSOR_CLIENT_TIMEOUT_EVT || param->error_code != 0 ||
               param->params->ctx.recv_op != ESP_BLE_MESH_MODEL_OP_SENSOR_STATUS
           ? nullptr
           : param->status_cb.sensor_status.marshalled_sensor_data;
   if (buffer == nullptr || !this->node_inflight_valid_ || this->node_inflight_.node >= this->node_runtime_.size()) {
+    if (this->node_inflight_valid_ && this->node_inflight_.node < this->node_table_.count)
+      ESP_LOGW(NODE_TAG, "Sensor request to '%s' element %u (kind %u) failed: event=%d error=%d recv_op=0x%X",
+               this->node_table_.nodes[this->node_inflight_.node].name,
+               static_cast<unsigned>(this->node_inflight_.element), static_cast<unsigned>(this->node_inflight_.kind),
+               static_cast<int>(event), static_cast<int>(param->error_code),
+               static_cast<unsigned>(param->params->ctx.recv_op));
     this->node_request_failed_();
     this->complete_access_operation_(opcode, false);
     return;
   }
+  if (buffer->len == 0)
+    ESP_LOGW(NODE_TAG, "Sensor status from '%s' element %u carries no sensor data",
+             this->node_table_.nodes[this->node_inflight_.node].name,
+             static_cast<unsigned>(this->node_inflight_.element));
 
   this->note_node_response_(param->params->ctx);
   {
@@ -593,6 +673,10 @@ void NightmatiqMesh::handle_node_sensor_(esp_ble_mesh_sensor_client_cb_event_t e
         }
       if (slot == nullptr && state.sensor_count < state.sensors.size()) slot = &state.sensors[state.sensor_count++];
       if (slot != nullptr) {
+        if (slot->length == 0 && slot->element == 0 && slot->property == 0)
+          ESP_LOGI(NODE_TAG, "Node '%s' element %u: first reading of sensor property 0x%04X (%u bytes)",
+                   this->node_table_.nodes[this->node_inflight_.node].name, static_cast<unsigned>(element),
+                   static_cast<unsigned>(property_id), static_cast<unsigned>(value_length));
         slot->element = element;
         slot->property = property_id;
         slot->length = static_cast<uint8_t>(std::min(value_length, slot->raw.size()));

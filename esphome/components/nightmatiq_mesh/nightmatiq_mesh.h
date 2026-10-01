@@ -308,6 +308,10 @@ class NightmatiqMesh final : public PollingComponent, public AsyncWebHandler {
     // Configuration Composition Data Get (page 0), read with the node's device key.
     // Its version ID is the device's firmware version.
     COMPOSITION_GET,
+    // Sensor Get for one property id (value), and Sensor Descriptor Get. Used on
+    // sensor elements that never produced a reading with the plain Sensor Get.
+    SENSOR_PROPERTY_GET,
+    SENSOR_DESCRIPTOR_GET,
   };
   struct NodeRequest {
     NodeRequestKind kind{NodeRequestKind::ONOFF_GET};
@@ -334,6 +338,7 @@ class NightmatiqMesh final : public PollingComponent, public AsyncWebHandler {
     // the firmware version into it: 5 bits major, 5 bits minor, 6 bits patch.
     uint16_t version_id{0};
     uint8_t version_attempts{0};
+    uint8_t sensor_probe_attempts{0};
     bool responded{false};
     uint32_t last_response_at{0};
     uint32_t consecutive_failures{0};

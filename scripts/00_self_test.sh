@@ -372,6 +372,7 @@ for source, marker in (
     (nodes_source, "note_node_response_"),
     (nodes_source, "NodeRequestKind::COMPOSITION_GET"),
     (nodes_source, "handle_node_composition_"),
+    (nodes_source, "NodeRequestKind::SENSOR_DESCRIPTOR_GET"),
     (web_source, "firmware_version"),
     (web_source, "manufacturer_name_"),
     (mesh, "main_light_entities_published_"),
