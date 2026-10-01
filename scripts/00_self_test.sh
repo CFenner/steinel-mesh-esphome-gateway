@@ -258,7 +258,7 @@ for source, marker in (
     (web_source, 'send_json_(request, 200, "{\\\"message\\\":\\\"Changing twilight threshold\\\"}")'),
     (web_source, 'send_json_(request, 200, "{\\\"message\\\":\\\"Refreshing NightmatIQ state\\\"}")'),
     (page_source, "Administrator access"),
-    (page_source, "Gateway administration"),
+    (page_source, "<h2>Administration"),
     (page_source, "Factory reset"),
     (page_source, '<div class="maintenance-section"><h3>Administrator access</h3>'),
     (page_source, '<div class="maintenance-section"><h3>Wi-Fi network</h3>'),
@@ -284,13 +284,14 @@ for source, marker in (
     if marker not in source:
         errors.append(f"missing required source marker: {marker}")
 
-if '<details class="maintenance-section"><summary>Administrator access</summary>' in page_source:
-    errors.append("administrator access must not be folded on its own; it belongs to the folded administration section")
-# The administration area is folded by default. So a factory password cannot go
-# unnoticed, the page must flag it and open the section on first load.
-for marker in ('<details id="adminSection">', 'id="adminWarn"', "j.factory_password&&!adminAutoOpened"):
-    if marker not in page_source:
-        errors.append(f"folded administration section is missing: {marker}")
+# The administration area is always visible, never folded. A factory password
+# must stay obvious, so the heading carries a warning chip while it is active.
+admin_start = page_source.index("<h2>Administration")
+admin_after_heading = page_source[page_source.index("</h2>", admin_start) + len("</h2>"):]
+if admin_after_heading.startswith("<details") or "<details id=\"adminSection\"" in page_source:
+    errors.append("the administration section must not be foldable")
+if 'id="adminWarn"' not in page_source:
+    errors.append("the administration heading is missing the factory password warning")
 if 'class="maintenance-section danger-zone"' in page_source:
     errors.append("factory reset must use the standard administration section separator")
 

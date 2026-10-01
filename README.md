@@ -68,7 +68,7 @@ The standard ESPHome integration exposes NightmatIQ directly as a single Home As
 - Installed configuration and extended diagnostics.
 - Mesh RSSI and response counters.
 - Password-protected browser OTA update.
-- Gateway administration panel with firmware updates, administrator password management and a complete factory reset.
+- Administration panel with firmware updates, administrator password management and a complete factory reset.
 
 ### Home Assistant integration
 
@@ -186,7 +186,7 @@ The Wi-Fi configuration is stored by the device and survives firmware updates.
 
 1. Open the gateway address in a browser.
 2. Sign in as `admin` with factory password `12345678`.
-3. In **Gateway administration**, change the password in the visible **Administrator access** section. The same new password will authorize future firmware updates.
+3. In **Administration**, change the password in the visible **Administrator access** section. The same new password will authorize future firmware updates.
 4. Sign in again after the automatic restart.
 5. Under **Set up your network**, choose the backup file (.json) of your Steinel network (obtained from the Steinel Connect app) and select **Import backup file**.
 6. Allow the gateway to restart. Every device found in the backup then appears under **Devices**.
