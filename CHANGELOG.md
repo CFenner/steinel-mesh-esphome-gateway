@@ -10,6 +10,7 @@ Generic multi-node support (experimental). Verified on a real network with an IS
 - The ESPHome device is now called "Steinel Mesh Gateway" (project `cfenner.steinel_mesh_gateway`) and its entities have short names such as "Mesh Ready" and "Status"; the entities describing the primary device start with "Primary Device". Because ESPHome derives an entity's ID from its name, Home Assistant creates new entities and leaves the old ones orphaned: delete them after updating. The hostname is unchanged.
 - Network setup is now a local `.json` backup import. The Steinel Cloud download and its login form were removed.
 - All controllable nodes of the backup are stored and restored, not only the NightmatIQ Plus.
+- `/api/nodes` reports each device's manufacturer, company ID and product ID, and probes devices with a sensor once for their firmware and hardware revision (standard Device Properties `0x000E` and `0x0010`); the revisions are reported only when the device answers.
 - `/api/nodes` also reports the gateway's MAC address so Home Assistant can link the mesh devices to the gateway's ESPHome device.
 - `GET /steinel/nodes` lists the stored nodes; `GET /api/nodes` adds live state (on/off, brightness, automatic mode, sensor readings).
 - `POST /api/nodes/<address>` with `on`, `brightness` (0-100), `auto` and `threshold` (twilight threshold, 1-1500 lx) controls a lamp.

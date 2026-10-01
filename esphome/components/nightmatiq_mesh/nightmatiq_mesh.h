@@ -298,6 +298,9 @@ class NightmatiqMesh final : public PollingComponent, public AsyncWebHandler {
     LC_MODE_SET,
     THRESHOLD_GET,
     THRESHOLD_SET,
+    // Sensor Get for one property id (value), used to probe a device's firmware
+    // and hardware revision.
+    SENSOR_PROPERTY_GET,
   };
   struct NodeRequest {
     NodeRequestKind kind{NodeRequestKind::ONOFF_GET};
@@ -382,6 +385,7 @@ class NightmatiqMesh final : public PollingComponent, public AsyncWebHandler {
   static esp_ble_mesh_model_t *light_lightness_model_();
   bool restore_node_table_();
   static const char *product_name_(uint16_t company_id, uint16_t product_id);
+  static const char *manufacturer_name_(uint16_t company_id);
   bool install_backup_(BackupBody &body, uint32_t iv_index, uint16_t node_address, std::string &error);
   void handle_nodes_(AsyncWebServerRequest *request, bool with_state = false);
   void handle_import_(AsyncWebServerRequest *request);
@@ -512,6 +516,9 @@ class NightmatiqMesh final : public PollingComponent, public AsyncWebHandler {
   // time, so a single buffer is enough.
   std::array<uint8_t, 3> node_threshold_storage_{};
   net_buf_simple node_threshold_buffer_{};
+  // Passes started so far; the firmware and hardware revision probe only runs in
+  // the first two.
+  uint8_t node_pass_count_{0};
   std::vector<NodeRequest> node_poll_plan_;
   size_t node_poll_pos_{0};
   NodeRequest node_inflight_{};

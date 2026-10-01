@@ -369,6 +369,8 @@ for source, marker in (
     (header_source, "StoredNodeTable"),
     (nodes_source, "advance_node_engine_"),
     (nodes_source, "note_node_response_"),
+    (nodes_source, "NodeRequestKind::SENSOR_PROPERTY_GET"),
+    (web_source, "manufacturer_name_"),
     (mesh, "main_light_entities_published_"),
     (web_source, "mac_text"),
     (nodes_source, "NodeRequestKind::THRESHOLD_SET"),

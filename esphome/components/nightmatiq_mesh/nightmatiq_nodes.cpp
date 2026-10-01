@@ -34,6 +34,9 @@ static constexpr uint32_t NODE_FIRST_PASS_DELAY_MS = 8000;
 static constexpr uint16_t LC_LIGHT_ON_THRESHOLD_PROPERTY = 0x002B;
 static constexpr uint32_t THRESHOLD_MIN_CENTILUX = 100;
 static constexpr uint32_t THRESHOLD_MAX_CENTILUX = 150000;
+// Standard Device Properties for the firmware and hardware revision.
+static constexpr uint16_t PROPERTY_FIRMWARE_REVISION = 0x000E;
+static constexpr uint16_t PROPERTY_HARDWARE_REVISION = 0x0010;
 
 namespace {
 
@@ -77,7 +80,7 @@ bool NightmatiqMesh::find_node_index_(uint16_t address, uint8_t &index) const {
 
 void NightmatiqMesh::build_node_poll_plan_(int only_node) {
   // Reads for one node: light output state, LC mode, then every sensor element.
-  const auto add_node = [this](uint8_t index, std::vector<NodeRequest> &plan) {
+  const auto add_node = [this](uint8_t index, std::vector<NodeRequest> &plan, bool probe) {
     const StoredNode &node = this->node_table_.nodes[index];
     const int light = light_element(node.element_caps, node.element_count, CAP_LIGHTNESS, CAP_ONOFF);
     if (light >= 0) {
@@ -93,6 +96,18 @@ void NightmatiqMesh::build_node_poll_plan_(int only_node) {
     if (lc >= 0 && has_sensor)
       plan.push_back({NodeRequestKind::THRESHOLD_GET, index, static_cast<uint8_t>(lc), 0, false});
     const size_t limit = std::min<size_t>(node.element_count, node.element_caps.size());
+    if (probe && has_sensor) {
+      // Standard Device Properties: ask the first sensor element directly for
+      // its firmware and hardware revision. A device that does not have them
+      // answers with an empty value, which is reported as "not available".
+      const int first_sensor = first_element_with(node.element_caps, node.element_count, CAP_SENSOR);
+      if (first_sensor >= 0) {
+        plan.push_back({NodeRequestKind::SENSOR_PROPERTY_GET, index, static_cast<uint8_t>(first_sensor),
+                        PROPERTY_FIRMWARE_REVISION, false});
+        plan.push_back({NodeRequestKind::SENSOR_PROPERTY_GET, index, static_cast<uint8_t>(first_sensor),
+                        PROPERTY_HARDWARE_REVISION, false});
+      }
+    }
     for (size_t element = 0; element < limit; element++)
       if ((node.element_caps[element] & CAP_SENSOR) != 0)
         plan.push_back({NodeRequestKind::SENSOR_GET, index, static_cast<uint8_t>(element), 0, false});
@@ -101,15 +116,17 @@ void NightmatiqMesh::build_node_poll_plan_(int only_node) {
   if (only_node >= 0) {
     // A refresh after a command runs before the remainder of the current pass.
     std::vector<NodeRequest> extra;
-    add_node(static_cast<uint8_t>(only_node), extra);
+    add_node(static_cast<uint8_t>(only_node), extra, false);
     this->node_poll_plan_.insert(this->node_poll_plan_.begin() + this->node_poll_pos_, extra.begin(),
                                  extra.end());
     return;
   }
   this->node_poll_plan_.clear();
   this->node_poll_pos_ = 0;
+  const bool probe = this->node_pass_count_ < 2;
+  if (this->node_pass_count_ < 255) this->node_pass_count_++;
   for (uint16_t i = 0; i < this->node_table_.count && i < this->node_table_.nodes.size(); i++)
-    add_node(static_cast<uint8_t>(i), this->node_poll_plan_);
+    add_node(static_cast<uint8_t>(i), this->node_poll_plan_, probe);
 }
 
 bool NightmatiqMesh::send_node_request_(const NodeRequest &request) {
@@ -163,6 +180,17 @@ bool NightmatiqMesh::send_node_request_(const NodeRequest &request) {
       // Without a Property ID the server returns every sensor value it has, so
       // the response also tells us which properties these devices expose.
       get.sensor_get.op_en = false;
+      return this->record_access_send_result_(AccessOperation::NODE_SENSOR_GET, ESP_BLE_MESH_MODEL_OP_SENSOR_GET,
+                                              esp_ble_mesh_sensor_client_get_state(&common, &get));
+    }
+    case NodeRequestKind::SENSOR_PROPERTY_GET: {
+      esp_ble_mesh_sensor_client_get_state_t get{};
+      if (!this->set_common_(common, sensor_model_(), ESP_BLE_MESH_MODEL_OP_SENSOR_GET, destination))
+        break;
+      if (!this->begin_access_operation_(AccessOperation::NODE_SENSOR_GET, ESP_BLE_MESH_MODEL_OP_SENSOR_GET))
+        break;
+      get.sensor_get.op_en = true;
+      get.sensor_get.property_id = request.value;
       return this->record_access_send_result_(AccessOperation::NODE_SENSOR_GET, ESP_BLE_MESH_MODEL_OP_SENSOR_GET,
                                               esp_ble_mesh_sensor_client_get_state(&common, &get));
     }

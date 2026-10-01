@@ -806,6 +806,10 @@ void NightmatiqMesh::clear_node_table_() {
 
 // Friendly names for the Steinel products seen in real networks. The identifier
 // is the Bluetooth Mesh Product ID (pid) carried in the backup.
+const char *NightmatiqMesh::manufacturer_name_(uint16_t company_id) {
+  return company_id == STEINEL_COMPANY_ID ? "Steinel GmbH" : "";
+}
+
 const char *NightmatiqMesh::product_name_(uint16_t company_id, uint16_t product_id) {
   if (company_id != STEINEL_COMPANY_ID) return "";
   switch (product_id) {
@@ -1658,6 +1662,8 @@ void NightmatiqMesh::handle_nodes_(AsyncWebServerRequest *request, bool with_sta
     body.escaped(node.name);
     body.append("\",\"product\":\"");
     body.escaped(product_name_(node.company_id, node.product_id));
+    body.append("\",\"manufacturer\":\"");
+    body.escaped(manufacturer_name_(node.company_id));
     std::snprintf(hex, sizeof(hex), "0x%04X", node.company_id);
     body.append("\",\"company_id\":\"");
     body.append(hex);
@@ -1744,6 +1750,12 @@ void NightmatiqMesh::handle_nodes_(AsyncWebServerRequest *request, bool with_sta
         if (value.property == 0x004E && value.length >= 3) {
           const uint32_t centilux = value.raw[0] | (value.raw[1] << 8) | (value.raw[2] << 16);
           std::snprintf(text, sizeof(text), ",\"lux\":%.2f", centilux / 100.0);
+          body.append(text);
+        } else if (value.property == 0x000E && value.length >= 1) {
+          std::snprintf(text, sizeof(text), ",\"firmware_revision\":%u", static_cast<unsigned>(value.raw[0]));
+          body.append(text);
+        } else if (value.property == 0x0010 && value.length >= 1) {
+          std::snprintf(text, sizeof(text), ",\"hardware_revision\":%u", static_cast<unsigned>(value.raw[0]));
           body.append(text);
         } else if (value.property == 0x004D && value.length >= 1) {
           body.append(value.raw[0] != 0 ? ",\"presence\":true" : ",\"presence\":false");
