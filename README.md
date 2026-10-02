@@ -269,7 +269,7 @@ This project is licensed under the GNU General Public License version 3 only (`G
 ## Credits and support
 
 - Author and maintainer: **Bartosz Supcziński**, <bartek@env.pl>.
-- ESPHome project identifier: `cfenner.steinel_mesh_gateway`.
+- ESPHome project name: `CFenner.Steinel Mesh Gateway`. Home Assistant shows the part before the dot as the manufacturer and the part after it as the model of the gateway device.
 
 When reporting a problem, include the firmware version, ESPHome version, reset reason and relevant logs. Remove passwords, keys, authorization headers, private backups and network identifiers before sharing diagnostics.
 

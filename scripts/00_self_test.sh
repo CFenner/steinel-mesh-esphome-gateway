@@ -50,6 +50,7 @@ for path in \
 done
 
 for marker in \
+  'project_name: "CFenner.Steinel Mesh Gateway"' \
   'project_version: "0.1.0"' \
   '## Unreleased'; do
   if grep -Fq "$marker" "$CONFIG" "$ROOT_DIR/CHANGELOG.md"; then
