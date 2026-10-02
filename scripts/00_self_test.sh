@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-CONFIG="$ROOT_DIR/esphome/nightmatiq-c3.yaml"
+CONFIG="$ROOT_DIR/esphome/steinel-c3.yaml"
 FAIL=0
 IS_GIT_WORKTREE=0
 if git -C "$ROOT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
@@ -30,23 +30,18 @@ fi
 
 for path in \
   "$ROOT_DIR/README.md" \
-  "$ROOT_DIR/README_PL.md" \
-  "$ROOT_DIR/README_DE.md" \
   "$ROOT_DIR/CHANGELOG.md" \
   "$CONFIG" \
-  "$ROOT_DIR/esphome/components/nightmatiq_mesh/__init__.py" \
-  "$ROOT_DIR/esphome/components/nightmatiq_mesh/nightmatiq_mesh.h" \
-  "$ROOT_DIR/esphome/components/nightmatiq_mesh/nightmatiq_mesh.cpp" \
-  "$ROOT_DIR/esphome/components/nightmatiq_mesh/nightmatiq_web.cpp" \
-  "$ROOT_DIR/esphome/components/nightmatiq_mesh/nightmatiq_page.html" \
-  "$ROOT_DIR/esphome/components/nightmatiq_mesh/nightmatiq_page.h" \
+  "$ROOT_DIR/esphome/components/steinel_mesh/__init__.py" \
+  "$ROOT_DIR/esphome/components/steinel_mesh/steinel_mesh.h" \
+  "$ROOT_DIR/esphome/components/steinel_mesh/steinel_mesh.cpp" \
+  "$ROOT_DIR/esphome/components/steinel_mesh/steinel_web.cpp" \
+  "$ROOT_DIR/esphome/components/steinel_mesh/steinel_page.html" \
+  "$ROOT_DIR/esphome/components/steinel_mesh/steinel_page.h" \
   "$ROOT_DIR/scripts/10_prepare_release.sh" \
-  "$ROOT_DIR/home-assistant/steinel-nightmatiq-package.yaml" \
-  "$ROOT_DIR/home-assistant/steinel-nightmatiq-popup.js" \
   "$ROOT_DIR/docs/images/esp32-c3-super-mini.jpg" \
-  "$ROOT_DIR/docs/images/nightmatiq-web-interface.png" \
-  "$ROOT_DIR/docs/images/home-assistant-device.png" \
-  "$ROOT_DIR/docs/images/home-assistant-control.png"; do
+  "$ROOT_DIR/docs/images/steinel-web-interface.png" \
+  "$ROOT_DIR/docs/images/home-assistant-device.png"; do
   if [[ -f "$path" ]]; then
     ok "required file: ${path#"$ROOT_DIR/"}"
   else
@@ -55,8 +50,9 @@ for path in \
 done
 
 for marker in \
-  'project_version: "1.1.1"' \
-  '## 1.1.1'; do
+  'project_name: "CFenner.Steinel Mesh Gateway"' \
+  'project_version: "0.1.0"' \
+  '## Unreleased'; do
   if grep -Fq "$marker" "$CONFIG" "$ROOT_DIR/CHANGELOG.md"; then
     ok "release marker: $marker"
   else
@@ -87,22 +83,13 @@ else
   ok 'no private or development markers in public repository text'
 fi
 
-for navigation in \
-  'README.md:README_PL.md:README_DE.md' \
-  'README_PL.md:README.md:README_DE.md' \
-  'README_DE.md:README.md:README_PL.md'; do
-  IFS=: read -r file first second <<<"$navigation"
-  grep -Fq "$first" "$ROOT_DIR/$file" || fail "missing language navigation in $file: $first"
-  grep -Fq "$second" "$ROOT_DIR/$file" || fail "missing language navigation in $file: $second"
-  grep -Fq 'web.esphome.io' "$ROOT_DIR/$file" || fail "missing ready-made installation instructions: $file"
-done
+grep -Fq 'web.esphome.io' "$ROOT_DIR/README.md" || fail 'missing ready-made installation instructions: README.md'
 
 for marker in \
   'variant: esp32c3' \
   'CONFIG_BLE_MESH_PROVISIONER: y' \
   'CONFIG_BT_BLE_50_FEATURES_SUPPORTED: n' \
   'CONFIG_ESP_WIFI_SOFTAP_SUPPORT: y' \
-  'name_add_mac_suffix: true' \
   'factory_username: "admin"' \
   'factory_password: "12345678"' \
   'id: nightmatiq_ota' \
@@ -147,8 +134,8 @@ for path in (root / "scripts").glob("*.py"):
     except SyntaxError as error:
         errors.append(f"invalid Python syntax in {path.name}: {error}")
 
-html = (root / "esphome/components/nightmatiq_mesh/nightmatiq_page.html").read_bytes()
-header = (root / "esphome/components/nightmatiq_mesh/nightmatiq_page.h").read_text(encoding="utf-8")
+html = (root / "esphome/components/steinel_mesh/steinel_page.html").read_bytes()
+header = (root / "esphome/components/steinel_mesh/steinel_page.h").read_text(encoding="utf-8")
 size_match = re.search(r"NIGHTMATIQ_PAGE_RAW_SIZE = (\d+);", header)
 array_match = re.search(r"NIGHTMATIQ_PAGE_GZ\[\d+\] = \{(.*?)\};", header, re.DOTALL)
 if size_match is None or array_match is None:
@@ -165,21 +152,11 @@ else:
         if int(size_match.group(1)) != len(html):
             errors.append("generated NightmatIQ raw page size is stale")
 
-mesh = (root / "esphome/components/nightmatiq_mesh/nightmatiq_mesh.cpp").read_text(encoding="utf-8")
-for marker in (
-    "esp_ble_gap_set_rand_addr(random_address)",
-    "esp_ble_gap_set_scan_params(&this->identity_scan_params_)",
-    "esp_ble_gap_start_scanning(IDENTITY_SCAN_WINDOW_MS / 1000U)",
-    "ESP_BLE_MESH_MODEL_OP_COMPOSITION_DATA_GET",
-    "ESP_BLE_MESH_MODEL_OP_GEN_ONOFF_GET",
-):
-    if marker not in mesh:
-        errors.append(f"missing NightmatIQ source marker: {marker}")
-
-header_source = (root / "esphome/components/nightmatiq_mesh/nightmatiq_mesh.h").read_text(encoding="utf-8")
-web_source = (root / "esphome/components/nightmatiq_mesh/nightmatiq_web.cpp").read_text(encoding="utf-8")
-component_source = (root / "esphome/components/nightmatiq_mesh/__init__.py").read_text(encoding="utf-8")
-config_source = (root / "esphome/nightmatiq-c3.yaml").read_text(encoding="utf-8")
+mesh = (root / "esphome/components/steinel_mesh/steinel_mesh.cpp").read_text(encoding="utf-8")
+header_source = (root / "esphome/components/steinel_mesh/steinel_mesh.h").read_text(encoding="utf-8")
+web_source = (root / "esphome/components/steinel_mesh/steinel_web.cpp").read_text(encoding="utf-8")
+component_source = (root / "esphome/components/steinel_mesh/__init__.py").read_text(encoding="utf-8")
+config_source = (root / "esphome/steinel-c3.yaml").read_text(encoding="utf-8")
 page_source = html.decode("utf-8")
 for source, marker in (
     (header_source, "ADDRESS_POOL_TARGET_SIZE = 2048"),
@@ -189,14 +166,11 @@ for source, marker in (
     (header_source, "ADMIN_PASSWORD_MIN_LENGTH = 8"),
     (header_source, "struct StoredAutoUpdate"),
     (header_source, "AUTO_UPDATE_URL_MAX_LENGTH = 255"),
-    (component_source, "esp32_ble.register_gap_event_handler(ble, var)"),
-    (component_source, "esp32_ble.register_gap_scan_event_handler(ble, var)"),
     (component_source, "ESPHomeOTAComponent"),
     (mesh, "advance_address_recovery_(now)"),
     (mesh, "reboot_after_confirming_firmware()"),
     (mesh, "esp_ota_mark_app_valid_cancel_rollback()"),
     (mesh, "current_address_confirmed_()"),
-    (mesh, "!this->identity_found_this_boot_.load()"),
     (web_source, "esp_read_mac(mac, ESP_MAC_WIFI_STA)"),
     (web_source, "address_policy.installation_nonce = esp_random()"),
     (web_source, "mesh_rx_messages_.load() == 0"),
@@ -209,36 +183,25 @@ for source, marker in (
     (mesh, "rssi_sensor_->publish_state"),
     (component_source, 'CONF_RSSI_SENSOR_ID = "rssi_sensor_id"'),
     (component_source, "var.set_rssi_sensor(rssi)"),
-    (config_source, 'friendly_name: "Steinel NightmatIQ Plus"'),
+    (config_source, 'friendly_name: "Steinel Mesh Gateway"'),
+    (config_source, "platform: debug"),
+    (config_source, "id(nightmatiq_gateway).mesh_tx_attempts()"),
     (config_source, "rssi_sensor_id: nightmatiq_rssi"),
-    (config_source, 'name: "NightmatIQ Signal Strength"'),
+    (config_source, 'name: "Signal Strength"'),
     (config_source, "device_class: signal_strength"),
-    (config_source, 'name: "NightmatIQ Refresh"'),
+    (config_source, 'name: "Refresh"'),
     (config_source, "id(nightmatiq_gateway).request_refresh();"),
-    (config_source, "optimistic: true"),
-    (config_source, "restore_value: true"),
-    (config_source, 'initial_option: "Auto"'),
     (web_source, "mesh_last_rssi_dbm"),
     (web_source, "mesh_last_rssi_age_seconds"),
-    (page_source, "Last Mesh RSSI"),
+    (page_source, "Last RSSI"),
     (page_source, "meshRssi"),
-    (web_source, "retryable_transport_error"),
-    (web_source, "http_status <= 0"),
-    (web_source, "CLOUD_ERROR_REBOOT_DELAY_MS"),
-    (web_source, "CLOUD_DISCOVER_SESSION_TIMEOUT_MS"),
-    (web_source, "schedule_cloud_session_reboot_"),
     (web_source, "api::global_api_server->on_shutdown()"),
     (web_source, "api::global_api_server->teardown()"),
-    (mesh, "cloud_session_reboot_pending_"),
     (header_source, "web_refresh_pending_"),
     (mesh, "this->request_refresh()"),
-    (web_source, 'url == "/steinel/mode"'),
-    (web_source, 'url == "/steinel/threshold"'),
     (web_source, 'url == "/steinel/refresh"'),
     (web_source, 'url == "/steinel/password"'),
     (web_source, 'url == "/steinel/wifi"'),
-    (web_source, "handle_mode_"),
-    (web_source, "handle_threshold_"),
     (web_source, "handle_refresh_"),
     (web_source, "handle_password_"),
     (web_source, "handle_wifi_"),
@@ -270,16 +233,9 @@ for source, marker in (
     (mesh, "global_preferences->reset()"),
     (header_source, "factory_reset_pending_"),
     (web_source, r'\"factory_password\"'),
-    (web_source, r'\"mode_known\"'),
-    (web_source, 'send_json_(request, 200, "{\\\"message\\\":\\\"Changing NightmatIQ mode\\\"}")'),
-    (web_source, 'send_json_(request, 200, "{\\\"message\\\":\\\"Changing twilight threshold\\\"}")'),
-    (web_source, 'send_json_(request, 200, "{\\\"message\\\":\\\"Refreshing NightmatIQ state\\\"}")'),
-    (page_source, "NightmatIQ control"),
-    (page_source, "modeControl"),
-    (page_source, "thresholdControl"),
-    (page_source, "refreshControl"),
+    (web_source, 'send_json_(request, 200, "{\\\"message\\\":\\\"Refreshing all devices\\\"}")'),
     (page_source, "Administrator access"),
-    (page_source, "Gateway administration"),
+    (page_source, "<h2>Administration"),
     (page_source, "Factory reset"),
     (page_source, '<div class="maintenance-section"><h3>Administrator access</h3>'),
     (page_source, '<div class="maintenance-section"><h3>Wi-Fi network</h3>'),
@@ -305,8 +261,14 @@ for source, marker in (
     if marker not in source:
         errors.append(f"missing required source marker: {marker}")
 
-if '<details class="maintenance-section"><summary>Administrator access</summary>' in page_source:
-    errors.append("administrator access must remain directly visible")
+# The administration area is always visible, never folded. A factory password
+# must stay obvious, so the heading carries a warning chip while it is active.
+admin_start = page_source.index("<h2>Administration")
+admin_after_heading = page_source[page_source.index("</h2>", admin_start) + len("</h2>"):]
+if admin_after_heading.startswith("<details") or "<details id=\"adminSection\"" in page_source:
+    errors.append("the administration section must not be foldable")
+if 'id="adminWarn"' not in page_source:
+    errors.append("the administration heading is missing the factory password warning")
 if 'class="maintenance-section danger-zone"' in page_source:
     errors.append("factory reset must use the standard administration section separator")
 
@@ -367,11 +329,84 @@ for forbidden_source_marker in (
     if forbidden_source_marker in web_source:
         errors.append(f"obsolete Mesh address interface remains public: {forbidden_source_marker}")
 
-control_handlers = web_source.split("void NightmatiqMesh::handle_mode_", 1)[1].split(
-    "bool NightmatiqMesh::cloud_get_", 1
-)[0]
-if "send_json_(request, 202" in control_handlers:
-    errors.append("NightmatIQ web controls must use an HTTP status supported by web_server_idf")
+nodes_source = (root / "esphome/components/steinel_mesh/steinel_nodes.cpp").read_text(encoding="utf-8")
+if "send_json_(request, 202" in nodes_source:
+    errors.append("node API must use an HTTP status supported by web_server_idf (200, 204, 400, 401, 404, 409, 422)")
+
+# Multi-node contract: local backup import and the node API.
+for source, marker in (
+    (web_source, 'url == "/steinel/import"'),
+    (web_source, 'url == "/api/nodes"'),
+    (web_source, 'url.find("/api/nodes/") == 0'),
+    (web_source, "handleBody"),
+    (header_source, "StoredNodeTable"),
+    (nodes_source, "advance_node_engine_"),
+    (nodes_source, "note_node_response_"),
+    (nodes_source, "NodeRequestKind::COMPOSITION_GET"),
+    (nodes_source, "handle_node_composition_"),
+    (nodes_source, "NodeRequestKind::SENSOR_DESCRIPTOR_GET"),
+    (nodes_source, "subscribe_sensor_groups_"),
+    (nodes_source, "NodeRequestKind::RUN_TIME_GET"),
+    (web_source, r'\"lux\":null'),
+    (nodes_source, "NodeRequestKind::RUN_TIME_SET"),
+    (nodes_source, "LC_TIME_RUN_ON_PROPERTY"),
+    (page_source, "nodeCommand(a,{run_time"),
+    (nodes_source, "handle_node_sensor_publish_"),
+    (nodes_source, "NODE_PUSH_FRESH_MS"),
+    (nodes_source, "no longer polled"),
+    (mesh, "ESP_BLE_MESH_SENSOR_CLIENT_PUBLISH_EVT"),
+    (web_source, "read_publish_address"),
+    (web_source, "firmware_version"),
+    (web_source, "manufacturer_name_"),
+    (web_source, "mac_text"),
+    (nodes_source, "NodeRequestKind::THRESHOLD_SET"),
+    (web_source, r'\"threshold\":'),
+    (page_source, "IMPORT BACKUP FILE"),
+    (page_source, "/steinel/import"),
+    (page_source, "/api/nodes"),
+    (page_source, "nodeCommand(a,{threshold"),
+    (page_source, "n.company_id"),
+    (page_source, "st.firmware_version"),
+):
+    if marker not in source:
+        errors.append(f"missing multi-node source marker: {marker}")
+
+# The Steinel Cloud download was removed on purpose: setup is a local file import.
+for forbidden_cloud_marker in (
+    "connectapp.steinel.de",
+    "discover_networks_",
+    "cloud_get_",
+    "start_cloud_job_",
+    "CloudJob",
+    'url == "/steinel/discover"',
+    'url == "/steinel/install"',
+):
+    for label, source in (("firmware", web_source), ("header", header_source), ("mesh", mesh)):
+        if forbidden_cloud_marker in source:
+            errors.append(f"removed Steinel Cloud feature remains in {label}: {forbidden_cloud_marker}")
+for forbidden_page_marker in ("/steinel/discover", "/steinel/install", "DOWNLOAD NETWORK LIST"):
+    if forbidden_page_marker in page_source:
+        errors.append(f"removed Steinel Cloud feature remains in GUI: {forbidden_page_marker}")
+
+# The single-device NightmatIQ code is gone: the node engine handles every device,
+# including the one the gateway was set up with.
+for forbidden_legacy_marker in (
+    "begin_identity_scan_",
+    "send_threshold_set_",
+    "advance_control_",
+    "main_light_entities_published_",
+    "composition_query_",
+    "nightmatiq_poll_deferred_",
+    "poll_stage_",
+    "handle_mode_",
+    "handle_threshold_",
+):
+    for label, source in (("firmware", web_source), ("header", header_source), ("mesh", mesh), ("nodes", nodes_source)):
+        if forbidden_legacy_marker in source:
+            errors.append(f"removed single-device code remains in {label}: {forbidden_legacy_marker}")
+for forbidden_config_marker in ("main_light_internal", "Primary Device", "lux_sensor_id", "mode_select_id"):
+    if forbidden_config_marker in config_source:
+        errors.append(f"removed single-device entity remains in the configuration: {forbidden_config_marker}")
 
 if errors:
     for error in errors:
