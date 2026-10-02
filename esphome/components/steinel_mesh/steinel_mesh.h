@@ -305,6 +305,9 @@ class NightmatiqMesh final : public Component, public AsyncWebHandler {
     uint16_t version_id{0};
     uint8_t version_attempts{0};
     uint8_t sensor_probe_attempts{0};
+    // millis() of the last reading a sensor element published on its own, per
+    // element; 0 = never. A sensor that keeps publishing is not polled.
+    std::array<uint32_t, NODE_MAX_ELEMENTS> push_at{};
     // Run time in ms (Light Control Time Run On); -1 while unknown. The attempts count how
     // often it was asked for while unknown.
     int32_t run_time_ms{-1};
@@ -340,6 +343,7 @@ class NightmatiqMesh final : public Component, public AsyncWebHandler {
   // Generic multi-node engine (steinel_nodes.cpp).
   void advance_node_engine_(uint32_t now);
   void build_node_poll_plan_(int only_node = -1);
+  bool node_force_poll_{false};
   bool send_node_request_(const NodeRequest &request);
   bool find_node_index_(uint16_t address, uint8_t &index) const;
   bool queue_node_command_(const NodeRequest &request);

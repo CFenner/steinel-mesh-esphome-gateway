@@ -930,7 +930,8 @@ void NightmatiqMesh::request_refresh() {
       this->set_status_("Mesh is still synchronizing");
     return;
   }
-  // Let the node engine read every device again right away.
+  // Let the node engine read every device again right away, publishing sensors too.
+  this->node_force_poll_ = true;
   this->node_poll_plan_.clear();
   this->node_poll_pos_ = 0;
   this->node_next_pass_at_ = millis();

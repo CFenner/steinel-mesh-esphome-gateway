@@ -42,6 +42,10 @@ static constexpr uint8_t NODE_TTL = 7;
 // answered the plain Sensor Get. Tried a limited number of times per device.
 static constexpr uint16_t PROPERTY_AMBIENT_LIGHT_LEVEL = 0x004E;
 static constexpr uint8_t NODE_SENSOR_PROBE_MAX_ATTEMPTS = 5;
+// A sensor element that published a reading within this time is not polled: its
+// device sends readings on its own (brightness every 10 s), so four missed
+// messages in a row are needed before polling takes over again.
+static constexpr uint32_t NODE_PUSH_FRESH_MS = 45000;
 // Light Control "Time Run On", shown as "Run time" (the Steinel app calls it
 // "regular time" and the main light time): how long the light stays on after
 // the last motion.
@@ -94,8 +98,11 @@ bool NightmatiqMesh::find_node_index_(uint16_t address, uint8_t &index) const {
 }
 
 void NightmatiqMesh::build_node_poll_plan_(int only_node) {
+  // An explicit refresh reads everything, including sensors that publish.
+  const bool force = this->node_force_poll_;
+  if (only_node < 0) this->node_force_poll_ = false;
   // Reads for one node: light output state, LC mode, then every sensor element.
-  const auto add_node = [this](uint8_t index, std::vector<NodeRequest> &plan, bool probe) {
+  const auto add_node = [this, force](uint8_t index, std::vector<NodeRequest> &plan, bool probe) {
     const StoredNode &node = this->node_table_.nodes[index];
     {
       // The firmware version is read live from the device's composition data.
@@ -119,9 +126,17 @@ void NightmatiqMesh::build_node_poll_plan_(int only_node) {
     if (lc >= 0 && has_sensor)
       plan.push_back({NodeRequestKind::THRESHOLD_GET, index, static_cast<uint8_t>(lc), 0, false});
     const size_t limit = std::min<size_t>(node.element_count, node.element_caps.size());
-    for (size_t element = 0; element < limit; element++)
-      if ((node.element_caps[element] & CAP_SENSOR) != 0)
-        plan.push_back({NodeRequestKind::SENSOR_GET, index, static_cast<uint8_t>(element), 0, false});
+    for (size_t element = 0; element < limit; element++) {
+      if ((node.element_caps[element] & CAP_SENSOR) == 0) continue;
+      if (probe && !force) {
+        // In a regular pass, leave out a sensor element whose device publishes its
+        // readings on its own and did so recently.
+        std::lock_guard<std::mutex> lock(this->node_mutex_);
+        const uint32_t pushed = this->node_runtime_[index].push_at[element];
+        if (pushed != 0 && static_cast<uint32_t>(millis() - pushed) < NODE_PUSH_FRESH_MS) continue;
+      }
+      plan.push_back({NodeRequestKind::SENSOR_GET, index, static_cast<uint8_t>(element), 0, false});
+    }
     if (lc >= 0) {
       // Read the run time while it is unknown, and again after a command to
       // this node so a change is confirmed.
@@ -736,6 +751,12 @@ void NightmatiqMesh::handle_node_sensor_publish_(esp_ble_mesh_sensor_client_cb_p
   this->store_sensor_data_(node, element, buffer->data, buffer->len);
   std::lock_guard<std::mutex> lock(this->node_mutex_);
   NodeRuntime &state = this->node_runtime_[node];
+  if (element < state.push_at.size()) {
+    if (state.push_at[element] == 0)
+      ESP_LOGI(NODE_TAG, "Node '%s' element %u publishes its readings: no longer polled",
+               this->node_table_.nodes[node].name, static_cast<unsigned>(element));
+    state.push_at[element] = std::max<uint32_t>(millis(), 1);
+  }
   state.responded = true;
   state.last_response_at = millis();
   state.consecutive_failures = 0;

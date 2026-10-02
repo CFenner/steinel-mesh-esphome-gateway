@@ -351,6 +351,8 @@ for source, marker in (
     (nodes_source, "LC_TIME_RUN_ON_PROPERTY"),
     (page_source, "nodeCommand(a,{run_time"),
     (nodes_source, "handle_node_sensor_publish_"),
+    (nodes_source, "NODE_PUSH_FRESH_MS"),
+    (nodes_source, "no longer polled"),
     (mesh, "ESP_BLE_MESH_SENSOR_CLIENT_PUBLISH_EVT"),
     (web_source, "read_publish_address"),
     (web_source, "firmware_version"),
