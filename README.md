@@ -122,7 +122,7 @@ The firmware is designed for the ESP32-C3 and ESP-IDF. Bluetooth 5 extended feat
 
 The recommended first installation does not require compiling ESPHome:
 
-1. Download the latest `steinel-nightmatiq-esp32-c3-gateway-vX.Y.Z-factory.bin` from [GitHub Releases](https://github.com/CFenner/steinel-mesh-esphome-gateway/releases/latest).
+1. Download the latest `steinel-mesh-esphome-gateway-vX.Y.Z-factory.bin` from [GitHub Releases](https://github.com/CFenner/steinel-mesh-esphome-gateway/releases/latest).
 2. Open [ESPHome Web](https://web.esphome.io/) in a WebSerial-capable browser and connect the ESP32-C3 by USB.
 3. Select the board, choose **Install**, and select the downloaded `-factory.bin` file.
 4. After installation, continue with **Connect Wi-Fi** and **Connect NightmatIQ** below.

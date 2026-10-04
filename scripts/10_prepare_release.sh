@@ -28,7 +28,7 @@ OTA_SOURCE="$(find .esphome/build -type f -name firmware.ota.bin -print -quit)"
 }
 
 RELEASE_DIR="$ROOT_DIR/output/v$VERSION"
-BASE_NAME="steinel-nightmatiq-esp32-c3-gateway-v$VERSION"
+BASE_NAME="steinel-mesh-esphome-gateway-v$VERSION"
 mkdir -p "$RELEASE_DIR"
 cp "$FACTORY_SOURCE" "$RELEASE_DIR/$BASE_NAME-factory.bin"
 cp "$OTA_SOURCE" "$RELEASE_DIR/$BASE_NAME-ota.bin"

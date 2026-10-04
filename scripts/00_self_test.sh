@@ -408,6 +408,21 @@ for forbidden_config_marker in ("main_light_internal", "Primary Device", "lux_se
     if forbidden_config_marker in config_source:
         errors.append(f"removed single-device entity remains in the configuration: {forbidden_config_marker}")
 
+# The update downloads "<prefix><version>-ota.bin" from the release. The release
+# script, the firmware and the web page must build the same name.
+release_script = (root / "scripts/10_prepare_release.sh").read_text(encoding="utf-8")
+asset_prefixes = {
+    "firmware": re.search(r'RELEASE_ASSET_PREFIX =\s*"([^"]+)"', web_source),
+    "web page": re.search(r"RELEASE_ASSET_PREFIX='([^']+)'", page_source),
+    "release script": re.search(r'BASE_NAME="([^"$]+)\$VERSION"', release_script),
+}
+if not all(asset_prefixes.values()):
+    errors.append("could not find the release file name prefix in: " +
+                  ", ".join(name for name, found in asset_prefixes.items() if not found))
+elif len({found.group(1) for found in asset_prefixes.values()}) != 1:
+    errors.append("the release file name differs between the firmware, the web page and the release script: " +
+                  ", ".join(f"{name}={found.group(1)}" for name, found in asset_prefixes.items()))
+
 if errors:
     for error in errors:
         print(f"ERROR: {error}", file=sys.stderr)

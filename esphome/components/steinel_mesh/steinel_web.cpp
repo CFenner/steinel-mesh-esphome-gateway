@@ -47,7 +47,7 @@ static constexpr uint32_t AUTO_UPDATE_ERROR_REBOOT_DELAY_MS = 20000;
 static const char *const RELEASE_DOWNLOAD_PREFIX =
     "https://github.com/CFenner/steinel-mesh-esphome-gateway/releases/download/v";
 static const char *const RELEASE_ASSET_PREFIX =
-    "steinel-nightmatiq-esp32-c3-gateway-v";
+    "steinel-mesh-esphome-gateway-v";
 
 #ifdef USE_NIGHTMATIQ_EXTENDED_DIAGNOSTICS
 static const char *reset_reason_name(esp_reset_reason_t reason) {
