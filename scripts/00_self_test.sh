@@ -92,7 +92,7 @@ for marker in \
   'CONFIG_ESP_WIFI_SOFTAP_SUPPORT: y' \
   'factory_username: "admin"' \
   'factory_password: "12345678"' \
-  'id: nightmatiq_ota' \
+  'id: steinel_ota' \
   'password: ""' \
   'password: "${factory_password}"' \
   'channel: 6' \
@@ -185,12 +185,12 @@ for source, marker in (
     (component_source, "var.set_rssi_sensor(rssi)"),
     (config_source, 'friendly_name: "Steinel Mesh Gateway"'),
     (config_source, "platform: debug"),
-    (config_source, "id(nightmatiq_gateway).mesh_tx_attempts()"),
-    (config_source, "rssi_sensor_id: nightmatiq_rssi"),
+    (config_source, "id(steinel_gateway).mesh_tx_attempts()"),
+    (config_source, "rssi_sensor_id: steinel_rssi"),
     (config_source, 'name: "Signal Strength"'),
     (config_source, "device_class: signal_strength"),
     (config_source, 'name: "Refresh"'),
-    (config_source, "id(nightmatiq_gateway).request_refresh();"),
+    (config_source, "id(steinel_gateway).request_refresh();"),
     (web_source, "mesh_last_rssi_dbm"),
     (web_source, "mesh_last_rssi_age_seconds"),
     (page_source, "Last RSSI"),
