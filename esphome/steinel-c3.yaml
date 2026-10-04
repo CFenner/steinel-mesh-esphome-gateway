@@ -109,12 +109,12 @@ external_components:
     components: [steinel_mesh]
 
 steinel_mesh:
-  id: nightmatiq_gateway
+  id: steinel_gateway
   extended_diagnostics: true
-  rssi_sensor_id: nightmatiq_rssi
+  rssi_sensor_id: steinel_rssi
   ready_binary_sensor_id: steinel_mesh_ready
-  status_text_sensor_id: nightmatiq_status
-  ota_id: nightmatiq_ota
+  status_text_sensor_id: steinel_status
+  ota_id: steinel_ota
   web_username: "${factory_username}"
   web_password: "${factory_password}"
 
@@ -131,7 +131,7 @@ api:
 
 ota:
   - platform: esphome
-    id: nightmatiq_ota
+    id: steinel_ota
     password: ""
 
 wifi:
@@ -166,7 +166,7 @@ binary_sensor:
 
 sensor:
   - platform: template
-    id: nightmatiq_rssi
+    id: steinel_rssi
     name: "Signal Strength"
     device_class: signal_strength
     state_class: measurement
@@ -191,7 +191,7 @@ sensor:
   - platform: template
     name: "Mesh Transmissions"
     icon: mdi:radio-tower
-    lambda: 'return id(nightmatiq_gateway).mesh_tx_attempts();'
+    lambda: 'return id(steinel_gateway).mesh_tx_attempts();'
     state_class: total_increasing
     accuracy_decimals: 0
     update_interval: 60s
@@ -200,7 +200,7 @@ sensor:
   - platform: template
     name: "Mesh Send Errors"
     icon: mdi:alert-circle-outline
-    lambda: 'return id(nightmatiq_gateway).mesh_tx_errors();'
+    lambda: 'return id(steinel_gateway).mesh_tx_errors();'
     state_class: total_increasing
     accuracy_decimals: 0
     update_interval: 60s
@@ -209,7 +209,7 @@ sensor:
   - platform: template
     name: "Mesh Last Send Error"
     icon: mdi:alert-outline
-    lambda: 'return id(nightmatiq_gateway).mesh_last_tx_error();'
+    lambda: 'return id(steinel_gateway).mesh_last_tx_error();'
     accuracy_decimals: 0
     update_interval: 60s
     entity_category: diagnostic
@@ -217,7 +217,7 @@ sensor:
   - platform: template
     name: "Mesh Responses"
     icon: mdi:message-arrow-left-outline
-    lambda: 'return id(nightmatiq_gateway).mesh_rx_messages();'
+    lambda: 'return id(steinel_gateway).mesh_rx_messages();'
     state_class: total_increasing
     accuracy_decimals: 0
     update_interval: 60s
@@ -226,7 +226,7 @@ sensor:
   - platform: template
     name: "Mesh Timeouts"
     icon: mdi:timer-alert-outline
-    lambda: 'return id(nightmatiq_gateway).mesh_timeouts();'
+    lambda: 'return id(steinel_gateway).mesh_timeouts();'
     state_class: total_increasing
     accuracy_decimals: 0
     update_interval: 60s
@@ -238,7 +238,7 @@ button:
     icon: mdi:refresh
     entity_category: diagnostic
     on_press:
-      - lambda: 'id(nightmatiq_gateway).request_refresh();'
+      - lambda: 'id(steinel_gateway).request_refresh();'
 
 text_sensor:
   - platform: debug
@@ -247,7 +247,7 @@ text_sensor:
       entity_category: diagnostic
 
   - platform: template
-    id: nightmatiq_status
+    id: steinel_status
     name: "Status"
     icon: mdi:bluetooth-connect
     entity_category: diagnostic
