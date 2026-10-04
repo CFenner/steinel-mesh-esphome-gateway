@@ -3,7 +3,7 @@ substitutions:
   friendly_name: "Steinel Mesh Gateway"
   device_description: "Local Steinel Bluetooth Mesh gateway for ESP32-C3"
   project_name: "CFenner.Steinel Mesh Gateway"
-  project_version: "0.1.0"
+  project_version: "0.1.1"
   factory_username: "admin"
   factory_password: "12345678"
 
