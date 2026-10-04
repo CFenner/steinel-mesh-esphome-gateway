@@ -1,9 +1,9 @@
 substitutions:
-  name: "nightmatiq-gateway"
-  friendly_name: "Steinel NightmatIQ Plus"
-  device_description: "Standalone Steinel NightmatIQ Plus gateway for ESP32-C3"
-  project_name: "envpl.steinel_nightmatiq_gateway"
-  project_version: "1.1.1"
+  name: "steinel-mesh-gateway"
+  friendly_name: "Steinel Mesh Gateway"
+  device_description: "Local Steinel Bluetooth Mesh gateway for ESP32-C3"
+  project_name: "CFenner.Steinel Mesh Gateway"
+  project_version: "0.1.0"
   factory_username: "admin"
   factory_password: "12345678"
 
@@ -11,7 +11,6 @@ esphome:
   name: "${name}"
   friendly_name: "${friendly_name}"
   comment: "${device_description}"
-  name_add_mac_suffix: true
   min_version: 2026.7.3
   project:
     name: "${project_name}"
@@ -41,10 +40,10 @@ esp32:
       CONFIG_BLE_MESH_PB_ADV: y
       CONFIG_BLE_MESH_SUPPORT_BLE_SCAN: y
       CONFIG_BLE_MESH_ADV_BUF_COUNT: "6"
-      CONFIG_BLE_MESH_CRPL: "3"
+      CONFIG_BLE_MESH_CRPL: "16"
       CONFIG_BLE_MESH_MSG_CACHE_SIZE: "2"
       CONFIG_BLE_MESH_WAIT_FOR_PROV_MAX_DEV_NUM: "1"
-      CONFIG_BLE_MESH_MAX_PROV_NODES: "1"
+      CONFIG_BLE_MESH_MAX_PROV_NODES: "12"
       CONFIG_BLE_MESH_PBA_SAME_TIME: "1"
       CONFIG_BLE_MESH_PROVISIONER_SUBNET_COUNT: "1"
       CONFIG_BLE_MESH_PROVISIONER_APP_KEY_COUNT: "1"
@@ -58,6 +57,7 @@ esp32:
       CONFIG_BLE_MESH_SENSOR_CLI: y
       CONFIG_BLE_MESH_SCENE_CLI: y
       CONFIG_BLE_MESH_LIGHT_LC_CLI: y
+      CONFIG_BLE_MESH_LIGHT_LIGHTNESS_CLI: y
       CONFIG_BLE_MESH_HEALTH_SRV: n
       CONFIG_BLE_MESH_PROXY: n
       CONFIG_BLE_MESH_TX_SEG_MSG_COUNT: "1"
@@ -106,27 +106,17 @@ external_components:
   - source:
       type: local
       path: components
-    components: [nightmatiq_mesh]
+    components: [steinel_mesh]
 
-nightmatiq_mesh:
+steinel_mesh:
   id: nightmatiq_gateway
   extended_diagnostics: true
-  lux_sensor_id: nightmatiq_lux
   rssi_sensor_id: nightmatiq_rssi
-  threshold_number_id: nightmatiq_threshold
-  mode_select_id: nightmatiq_mode
-  ready_binary_sensor_id: nightmatiq_mesh_ready
-  actual_output_binary_sensor_id: nightmatiq_actual_output
+  ready_binary_sensor_id: steinel_mesh_ready
   status_text_sensor_id: nightmatiq_status
-  firmware_version_text_sensor_id: nightmatiq_firmware_version
-  hardware_version_sensor_id: nightmatiq_hardware_version
-  manufacturer_text_sensor_id: nightmatiq_manufacturer
-  company_id_text_sensor_id: nightmatiq_company_id
-  product_id_text_sensor_id: nightmatiq_product_id
   ota_id: nightmatiq_ota
   web_username: "${factory_username}"
   web_password: "${factory_password}"
-  update_interval: 30s
 
 logger:
   level: INFO
@@ -153,6 +143,10 @@ wifi:
 
 captive_portal:
 
+# Gateway diagnostics, also listed on the web page.
+debug:
+  update_interval: 60s
+
 mdns:
   disabled: false
 
@@ -166,19 +160,14 @@ web_server:
 
 binary_sensor:
   - platform: template
-    id: nightmatiq_mesh_ready
-    name: "NightmatIQ Mesh Ready"
+    id: steinel_mesh_ready
+    name: "Mesh Ready"
     entity_category: diagnostic
-
-  - platform: template
-    id: nightmatiq_actual_output
-    name: "NightmatIQ Actual Light Output"
-    icon: mdi:lightbulb
 
 sensor:
   - platform: template
     id: nightmatiq_rssi
-    name: "NightmatIQ Signal Strength"
+    name: "Signal Strength"
     device_class: signal_strength
     state_class: measurement
     unit_of_measurement: dBm
@@ -186,85 +175,79 @@ sensor:
     update_interval: never
     entity_category: diagnostic
 
+  - platform: uptime
+    name: "Uptime"
+    entity_category: diagnostic
+
+  - platform: debug
+    free:
+      name: "Free Heap"
+      entity_category: diagnostic
+    block:
+      name: "Largest Free Block"
+      entity_category: diagnostic
+
+  # Bluetooth Mesh traffic counters of the gateway since it started.
   - platform: template
-    id: nightmatiq_hardware_version
-    name: "NightmatIQ Hardware Revision"
+    name: "Mesh Transmissions"
+    icon: mdi:radio-tower
+    lambda: 'return id(nightmatiq_gateway).mesh_tx_attempts();'
+    state_class: total_increasing
     accuracy_decimals: 0
-    update_interval: never
+    update_interval: 60s
     entity_category: diagnostic
 
   - platform: template
-    id: nightmatiq_lux
-    name: "NightmatIQ Illuminance"
-    device_class: illuminance
-    state_class: measurement
-    unit_of_measurement: lx
-    accuracy_decimals: 2
-    update_interval: never
+    name: "Mesh Send Errors"
+    icon: mdi:alert-circle-outline
+    lambda: 'return id(nightmatiq_gateway).mesh_tx_errors();'
+    state_class: total_increasing
+    accuracy_decimals: 0
+    update_interval: 60s
+    entity_category: diagnostic
+
+  - platform: template
+    name: "Mesh Last Send Error"
+    icon: mdi:alert-outline
+    lambda: 'return id(nightmatiq_gateway).mesh_last_tx_error();'
+    accuracy_decimals: 0
+    update_interval: 60s
+    entity_category: diagnostic
+
+  - platform: template
+    name: "Mesh Responses"
+    icon: mdi:message-arrow-left-outline
+    lambda: 'return id(nightmatiq_gateway).mesh_rx_messages();'
+    state_class: total_increasing
+    accuracy_decimals: 0
+    update_interval: 60s
+    entity_category: diagnostic
+
+  - platform: template
+    name: "Mesh Timeouts"
+    icon: mdi:timer-alert-outline
+    lambda: 'return id(nightmatiq_gateway).mesh_timeouts();'
+    state_class: total_increasing
+    accuracy_decimals: 0
+    update_interval: 60s
+    entity_category: diagnostic
 
 button:
   - platform: template
-    name: "NightmatIQ Refresh"
+    name: "Refresh"
     icon: mdi:refresh
     entity_category: diagnostic
     on_press:
       - lambda: 'id(nightmatiq_gateway).request_refresh();'
 
-number:
-  - platform: template
-    id: nightmatiq_threshold
-    name: "NightmatIQ Twilight Threshold"
-    icon: mdi:brightness-6
-    unit_of_measurement: lx
-    min_value: 1
-    max_value: 1500
-    step: 1
-    mode: slider
-    set_action:
-      - lambda: 'id(nightmatiq_gateway).set_threshold(x);'
-
-select:
-  - platform: template
-    id: nightmatiq_mode
-    name: "NightmatIQ Mode"
-    icon: mdi:theme-light-dark
-    optimistic: true
-    restore_value: true
-    initial_option: "Auto"
-    options:
-      - "Auto"
-      - "Always On"
-      - "Always Off"
-    set_action:
-      - lambda: 'id(nightmatiq_gateway).set_mode(x);'
-
 text_sensor:
+  - platform: debug
+    reset_reason:
+      name: "Reset Reason"
+      entity_category: diagnostic
+
   - platform: template
     id: nightmatiq_status
-    name: "NightmatIQ Status"
+    name: "Status"
     icon: mdi:bluetooth-connect
-    entity_category: diagnostic
-
-  - platform: template
-    id: nightmatiq_firmware_version
-    name: "NightmatIQ Installed Firmware"
-    icon: mdi:chip
-    entity_category: diagnostic
-
-  - platform: template
-    id: nightmatiq_manufacturer
-    name: "NightmatIQ Manufacturer"
-    icon: mdi:factory
-    entity_category: diagnostic
-
-  - platform: template
-    id: nightmatiq_company_id
-    name: "NightmatIQ Company ID"
-    icon: mdi:identifier
-    entity_category: diagnostic
-
-  - platform: template
-    id: nightmatiq_product_id
-    name: "NightmatIQ Product ID"
-    icon: mdi:identifier
     entity_category: diagnostic

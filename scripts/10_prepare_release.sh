@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 # shellcheck source=lib.sh
 source "$ROOT_DIR/scripts/lib.sh"
-CONFIG="$ROOT_DIR/esphome/nightmatiq-c3.yaml"
+CONFIG="$ROOT_DIR/esphome/steinel-c3.yaml"
 ESPHOME_BIN="$(find_esphome)"
 VERSION="$(sed -n 's/^[[:space:]]*project_version:[[:space:]]*"\([^"]*\)"/\1/p' "$CONFIG")"
 [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
@@ -13,8 +13,8 @@ VERSION="$(sed -n 's/^[[:space:]]*project_version:[[:space:]]*"\([^"]*\)"/\1/p' 
 }
 
 cd "$ROOT_DIR/esphome"
-"$ESPHOME_BIN" clean nightmatiq-c3.yaml
-"$ESPHOME_BIN" compile nightmatiq-c3.yaml
+"$ESPHOME_BIN" clean steinel-c3.yaml
+"$ESPHOME_BIN" compile steinel-c3.yaml
 
 FACTORY_SOURCE="$(find .esphome/build -type f -name firmware.factory.bin -print -quit)"
 OTA_SOURCE="$(find .esphome/build -type f -name firmware.ota.bin -print -quit)"
