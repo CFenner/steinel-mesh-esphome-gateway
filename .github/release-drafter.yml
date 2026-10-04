@@ -1,0 +1,61 @@
+# The gateway's firmware update only accepts a release tagged "v<version>", so
+# the tag keeps the "v" prefix (the version itself is not prefixed).
+name-template: "v$RESOLVED_VERSION"
+tag-template: "v$RESOLVED_VERSION"
+tag-prefix: "v"
+change-template: "- $TITLE @$AUTHOR (#$NUMBER)"
+# Add # and @ to prevent mentions. Add ` to prevent code blocks.
+change-title-escapes: '\<*_&'
+sort-direction: ascending
+
+# Pull requests are grouped by the Conventional Commit type of their title
+# (feat:, fix:, refactor:, ...); no labels are needed. A breaking change
+# ("feat!:" or "fix(scope)!:") raises the major version, "feat" the minor one,
+# everything else the patch version.
+categories:
+  - title: "🚨 Breaking changes"
+    semver-increment: major
+    exclusive: true
+    when:
+      conventional:
+        breaking: true
+  - title: "⬆️ Dependency updates"
+    exclusive: true
+    when:
+      conventional:
+        scope: deps
+  - title: "✨ New features"
+    semver-increment: minor
+    when:
+      conventional:
+        type: feat
+  - title: "🐛 Bug fixes"
+    when:
+      conventional:
+        type: fix
+  - title: "🚀 Enhancements"
+    when:
+      conventional:
+        types:
+          - refactor
+          - perf
+  - title: "🧰 Maintenance"
+    when:
+      conventional:
+        types:
+          - chore
+          - ci
+          - build
+          - test
+          - style
+  - title: "📚 Documentation"
+    when:
+      conventional:
+        type: docs
+  - type: version-resolver
+    semver-increment: patch
+
+template: |
+  ## What’s changed
+
+  $CHANGES

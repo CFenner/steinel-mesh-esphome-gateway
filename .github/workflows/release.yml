@@ -1,0 +1,77 @@
+name: Release
+
+# A release is made in two steps. Release Drafter keeps a draft up to date; to
+# release, publish that draft as a PRE-RELEASE. This workflow then builds the
+# firmware, attaches the files to it and turns it into the latest release. The
+# gateway's firmware update ignores pre-releases, so it never sees a release
+# that has no firmware attached yet.
+
+# yamllint disable-line rule:truthy
+on:
+  release:
+    types:
+      - prereleased
+  # Re-run for a pre-release whose build failed.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag of the pre-release to build and publish (for example v0.1.0)
+        required: true
+        type: string
+
+concurrency:
+  group: release-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: 📦 Build and publish the release
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: ⤵️ Check out code from GitHub
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ env.TAG }}
+      - name: 🔎 Check that the tag matches the firmware version
+        run: |
+          config="$(find esphome -maxdepth 1 -name '*-c3.yaml' | head -n 1)"
+          version="$(sed -n 's/^[[:space:]]*project_version:[[:space:]]*"\([^"]*\)"/\1/p' "${config}")"
+          if [ "v${version}" != "${TAG}" ]; then
+            echo "::error::The tag ${TAG} does not match project_version ${version:-<missing>} in ${config}. The gateway only updates to a release tagged v<project_version>."
+            exit 1
+          fi
+      - name: 🏗 Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - name: 🏗 Install ESPHome
+        id: esphome
+        run: |
+          # The version the project pins for its own builds.
+          requirement="$(grep -o 'esphome==[0-9][0-9.]*' scripts/01_install_esphome.sh | head -n 1)"
+          if [ -z "${requirement}" ]; then
+            echo "::error::No pinned ESPHome version found in scripts/01_install_esphome.sh"
+            exit 1
+          fi
+          python -m pip install "${requirement}"
+          echo "version=${requirement#esphome==}" >> "${GITHUB_OUTPUT}"
+      - name: 🏗 Restore the ESP-IDF toolchain
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/esphome
+          key: esphome-idf-${{ runner.os }}-${{ steps.esphome.outputs.version }}
+      - name: 🔨 Build the firmware
+        run: bash scripts/10_prepare_release.sh
+      - name: 📎 Attach the firmware to the release
+        run: |
+          ls -l "output/${TAG}"
+          gh release upload "${TAG}" "output/${TAG}"/* --clobber
+      - name: 🚀 Publish the release
+        run: gh release edit "${TAG}" --prerelease=false --latest
